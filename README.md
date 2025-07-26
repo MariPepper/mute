@@ -68,8 +68,9 @@ Server Security:
 In summary, the implementation requires a robust PHP environment with specific extensions for encryption and large number manipulation, along with careful configuration of directories and permissions to ensure the security of sensitive data.
 
 <b>MUTE Complete System Architecture Overview</b>
+
 https://maripepper.github.io/mute/
-![Uploading mute_edr.png…]()
+<img width="2880" height="7384" alt="mute_edr" src="https://github.com/user-attachments/assets/5b8f4687-ffae-46d8-8de1-65b28423cb1d" />
 
 
 Client-Side / Ephemeral Keys
