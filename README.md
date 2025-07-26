@@ -1,7 +1,6 @@
 # mute
 <img width="500" height="500" alt="svgviewer-png-output" src="https://github.com/user-attachments/assets/96cd0bd4-fca9-4dc6-bbb3-a26a6aeddf3c" />
-
-
+<br>
 Based on the provided files, for the implementation of the MUTE chat system, you will need the following libraries, PHP version, and other requirements:
 1. PHP Version and Required Extensions
 
@@ -68,13 +67,13 @@ Server Security:
 In summary, the implementation requires a robust PHP environment with specific extensions for encryption and large number manipulation, along with careful configuration of directories and permissions to ensure the security of sensitive data.
 
 <b>__________________________________________________________________________________________________________</b>
+
 <b>MUTE Complete System Architecture Overview</b>
 
 >> https://maripepper.github.io/mute/
 
 <img width="2880" height="7384" alt="mute_edr" src="https://github.com/user-attachments/assets/5b8f4687-ffae-46d8-8de1-65b28423cb1d" />
-
-
+<br>
 Client-Side / Ephemeral Keys
 
     chatkey
