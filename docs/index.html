@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MUTE Complete System Architecture (with Database ERD & TTLs)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            text-align: center;
+            padding: 25px;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .main-content {
+            display: flex;
+            min-height: 1000px;
+        }
+
+        .diagram-area {
+            flex: 1;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .legend-area {
+            width: 350px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .system-layers {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            gap: 15px;
+        }
+
+        .layer {
+            flex: 1;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .layer:hover {
+            transform: translateY(-3px);
+        }
+
+        .user-input {
+            background: linear-gradient(135deg, #ADD8E6, #87CEEB);
+            color: #333;
+        }
+
+        .client-side {
+            background: linear-gradient(135deg, #FFFFE0, #FFFACD);
+            color: #333;
+        }
+
+        .server-db {
+            background: linear-gradient(135deg, #90EE90, #98FB98);
+            color: #333;
+        }
+
+        .server-ephemeral {
+            background: linear-gradient(135deg, #F08080, #FA8072);
+            color: white;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 3px solid #4facfe;
+            padding-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 10px;
+            background: #4facfe;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .keys-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .entity-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .key-card,
+        .entity-card {
+            background: white;
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .key-card::before,
+        .entity-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 40px;
+            height: 40px;
+            background: inherit;
+            opacity: 0.2;
+            border-radius: 0 12px 0 40px;
+        }
+
+        .key-card:hover,
+        .entity-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .user-key {
+            border-left-color: #2196F3;
+        }
+
+        .client-key {
+            border-left-color: #4CAF50;
+        }
+
+        .server-key {
+            border-left-color: #9C27B0;
+        }
+
+        .message-storage {
+            border-left-color: #FF9800;
+        }
+
+        .key-name,
+        .entity-name {
+            font-weight: bold;
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .entity-name::before {
+            content: '🗄️';
+            margin-right: 8px;
+        }
+
+        .key-ttl,
+        .entity-ttl {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            display: inline-block;
+            margin-bottom: 12px;
+            font-weight: bold;
+        }
+
+        .key-description,
+        .entity-description {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+
+        .entity-fields {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .field {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .field-type {
+            background: #e9ecef;
+            color: #495057;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-right: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+        }
+
+        .primary-key {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .foreign-key {
+            background: #74b9ff;
+            color: #0984e3;
+        }
+
+        .relationships {
+            background: linear-gradient(135deg, #fd79a8 0%, #fdcb6e 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            color: white;
+        }
+
+        .relationship-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+        }
+
+        .relationship-arrow {
+            background: white;
+            color: #333;
+            padding: 8px 12px;
+            border-radius: 20px;
+            margin: 0 15px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .process-flow {
+            background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            color: white;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+        }
+
+        .step-number {
+            background: white;
+            color: #333;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .security-highlight {
+            background: linear-gradient(135deg, #ff7675 0%, #fd79a8 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            color: white;
+            border-left: 5px solid #e17055;
+        }
+
+        .security-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .security-title::before {
+            content: '🔒';
+            margin-right: 10px;
+        }
+
+        .interactive-elements {
+            margin-top: 25px;
+        }
+
+        .toggle-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 8px;
+            transition: all 0.3s ease;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .toggle-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .toggle-button.active {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .detail-panel {
+            display: none;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 20px;
+            backdrop-filter: blur(10px);
+            color: #333;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .detail-panel.active {
+            display: block;
+            animation: slideIn 0.4s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .legend-section {
+            margin-bottom: 25px;
+        }
+
+        .legend-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #fff;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .legend-color {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .legend-text {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 1400px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .legend-area {
+                width: 100%;
+            }
+
+            .entity-grid {
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            MUTE Complete System Architecture
+        </div>
+
+        <div class="main-content">
+            <div class="diagram-area">
+                <!-- Client-Side Keys -->
+                <div class="section">
+                    <div class="section-title">
+                        <div class="section-icon">C</div>
+                        Client-Side / Ephemeral Keys
+                    </div>
+                    <div class="keys-grid">
+                        <div class="key-card user-key">
+                            <div class="key-name">chatKey</div>
+                            <div class="key-ttl">TTL: Session</div>
+                            <div class="key-description">User-provided secret key. Base for derivedKey (private chat
+                                encryption). Never stored server-side.</div>
+                        </div>
+                        <div class="key-card client-key">
+                            <div class="key-name">key_hash</div>
+                            <div class="key-ttl">TTL: Session</div>
+                            <div class="key-description">SHA-256(chatKey). Used for salt retrieval mapping in
+                                salt_key_mapping table.</div>
+                        </div>
+                        <div class="key-card client-key">
+                            <div class="key-name">derivedKey</div>
+                            <div class="key-ttl">TTL: Session</div>
+                            <div class="key-description">PBKDF2(chatKey, salt). Encrypts private messages in
+                                temp_talk_gold.</div>
+                        </div>
+                        <div class="key-card client-key">
+                            <div class="key-name">salt</div>
+                            <div class="key-ttl">TTL: Fixed (per key_hash)</div>
+                            <div class="key-description">Random 16 bytes for PBKDF2 derivation. Mapped to key_hash in
+                                database.</div>
+                        </div>
+                        <div class="key-card client-key">
+                            <div class="key-name">shareKey</div>
+                            <div class="key-ttl">TTL: 5 min</div>
+                            <div class="key-description">Current public key from session_key_json. DH-like rotation
+                                every 5 minutes.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Database Entities -->
+                <div class="section">
+                    <div class="section-title">
+                        <div class="section-icon">DB</div>
+                        Database Entities
+                    </div>
+                    <div class="entity-grid">
+                        <div class="entity-card server-key">
+                            <div class="entity-name">passphrase_txt</div>
+                            <div class="entity-ttl">TTL: 24h rotation</div>
+                            <div class="entity-description">Stores the root passphrase (24 characters) for the system's
+                                master key derivation.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">VARCHAR(255)</span>
+                                    <span>content: Root passphrase</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at, updated_at</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card server-key">
+                            <div class="entity-name">master_key_bin</div>
+                            <div class="entity-ttl">TTL: 24h rotation</div>
+                            <div class="entity-description">Stores the AES-GCM encrypted master key with IV, tag, and
+                                authentication data.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>iv: Base64 IV for AES-GCM</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>tag: Base64 authentication tag</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>encrypted_key: Encrypted master key</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">VARCHAR(64)</span>
+                                    <span>x: Hex validation data</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>passphrase_id → passphrase_txt</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card server-key">
+                            <div class="entity-name">staticKey</div>
+                            <div class="entity-ttl">TTL: 24h rotation</div>
+                            <div class="entity-description">HMAC-SHA256 derived. Server JSON encryption. Stored
+                                encrypted in json_key_bin.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span> df_key: Seed from session_keys</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>iv: AES-GCM initialization vector</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>tag: Authentication tag</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>encrypted_key: Static key encrypted</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at</span>
+                                </div>                                
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>master_key_id → master_key_bin</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>session_key_id → session_key_json</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card server-key">
+                            <div class="entity-name">session_key_json</div>
+                            <div class="entity-ttl">TTL: 24h / 5min window</div>
+                            <div class="entity-description">Stores rotating public chat keys (shareKey) with
+                                Diffie-Hellman-like behavior and window management.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">INT</span>
+                                    <span>offset: Base for time windows</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">INT</span>
+                                    <span>window_number: Current 5-min window</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>key_value: Base64 key for window</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>df_key: Base64 derived key</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>last_cleanup, last_rotation, created</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>static_key_id → json_key_bin</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card server-key">
+                            <div class="entity-name">df_key_mimicry</div>
+                            <div class="entity-ttl">TTL: 5 min (derived from shareKey)</div>
+                            <div class="entity-description">Derived from latest shareKey in session_key_json. Used
+                                server-side to seed staticKey derivation.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">INT</span>
+                                    <span>offset, time_window, counter</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">INT</span>
+                                    <span>time_window</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">INT</span>
+                                    <span>counter</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>df_key: Server-managed value influencing static key derivation</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>shareKey: Latest shareKey used for derivation</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>session_key_id → session_key_json</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card server-key">
+                            <div class="entity-name">salt_key_mapping</div>
+                            <div class="entity-ttl">TTL: Manual/Persistent</div>
+                            <div class="entity-description">Maps chatKey hashes to their unique salts for consistent
+                                PBKDF2 key derivation.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">VARCHAR(64)</span>
+                                    <span>key_hash: SHA-256 of chatKey</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>salt: Base64 encoded 16 bytes</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card message-storage">
+                            <div class="entity-name">temp_talk_gold_json</div>
+                            <div class="entity-ttl">TTL: 5 min auto cleanup</div>
+                            <div class="entity-description">Stores encrypted private chat messages with IP hashing for
+                                moderation.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: BIGINT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>content: Encrypted message content</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">VARCHAR(64)</span>
+                                    <span>ip_hash: Hashed IP for moderation</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>last_activity: Unix timestamp</span>
+                                </div>                                
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>salt_mapping_id → salt_key_mapping</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card message-storage">
+                            <div class="entity-name">temp_talk_silver_json</div>
+                            <div class="entity-ttl">TTL: 5 min auto cleanup</div>
+                            <div class="entity-description">Stores encrypted public chat messages accessible to all
+                                users.</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: BIGINT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">TEXT</span>
+                                    <span>content: Encrypted message content + timestamp</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">VARCHAR(64)</span>
+                                    <span>ip_hash: Hashed IP for moderation</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>last_activity: Unix timestamp</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>session_key_id → session_key_json</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Database Relationships -->
+                <div class="relationships">
+                    <div class="section-title" style="color: white; border-color: white;">
+                        <div class="section-icon">R</div>
+                        Database and File Relationships
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>passphrase</strong></div>
+                        <div class="relationship-arrow">1:1</div>
+                        <div><strong> passphrase_txt (content) -- derives PassKey for --> master_key_bin
+                                decryption</strong></div>
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>masterKey</strong></div>
+                        <div class="relationship-arrow">1:1</div>
+                        <div><strong> master_key_bin (masterKey) -- decrypts/encrypts --> json_key_bin</strong></div>
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>staticKey</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong> json_key_bin (staticKey) -- encrypts/decrypts --> session_key_json</strong></div>
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>shareKey</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong> encrypts --> temp_talk_silver_json</strong></div>
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>dfKey</strong></div>
+                        <div class="relationship-arrow">1:1</div>
+                        <div><strong> session_key_json (derived) -- seeds generation of --> json_key_bin</strong>
+                            (shareKey pool)</div>
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>salt</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong> salt_key_mapping (salt) -- used in PBKDF2 to derive --> derivedKey -- encrypts -->
+                                temp_talk_gold_json</strong></div>
+                    </div>
+                </div>
+
+                <!-- Complete Process Flow -->
+                <div class="process-flow">
+                    <div class="section-title" style="color: white; border-color: white;">
+                        <div class="section-icon">F</div>
+                        Complete Key Derivation & Data Flow
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">1</div>
+                        <div><strong>User Input:</strong> User provides chatKey → Client generates key_hash via
+                            SHA-256(chatKey)</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">2</div>
+                        <div><strong>Salt Retrieval:</strong> key_hash → salt_key_mapping lookup → returns salt (or
+                            generates new salt + key_hash pair)</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">3</div>
+                        <div><strong>Private Key:</strong> PBKDF2(chatKey, salt) → derivedKey for temp_talk_gold_json
+                            encryption</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">4</div>
+                        <div><strong>Server Master:</strong> passphrase_txt content → SHA-256 → PassKey → AES-GCM
+                            decrypt master_key_bin</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">5</div>
+                        <div><strong>Static Key:</strong> masterKey → HMAC-SHA256 → staticKey → AES-GCM encrypt/store in
+                            json_key_bin</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">6</div>
+                        <div><strong>Session Pool:</strong> masterKey → session_key_json generation (DH-like, 5-min
+                            windows)</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">7</div>
+                        <div><strong>Public Key:</strong> session_key_json key_value → shareKey (current 5-min window)
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">8</div>
+                        <div><strong>DF Mimicry:</strong> shareKey → df_key_mimicry (stored in session_key_json as
+                            df_key) → seeds staticKey</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">9</div>
+                        <div><strong>Message Encryption:</strong> derivedKey encrypts private messages (gold), shareKey
+                            encrypts public messages (silver)</div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-number">10</div>
+                        <div><strong>Auto Cleanup:</strong> 5-minute TTL cleanup for temp_talk_* tables, 24h rotation
+                            for master keys</div>
+                    </div>
+                </div>
+
+                <!-- Security Features -->
+                <div class="security-highlight">
+                    <div class="security-title">Security Features & Architecture</div>
+                    <div style="margin-bottom: 12px;">• <strong>Multi-layer encryption:</strong> Private messages
+                        (derivedKey/PBKDF2) vs Public messages (shareKey/DH-like)</div>
+                    <div style="margin-bottom: 12px;">• <strong>Key rotation hierarchy:</strong> 5-min shareKey
+                        rotation, 24h master key rotation, manual static key refresh</div>
+                    <div style="margin-bottom: 12px;">• <strong>Persistent salt mapping:</strong> salt_key_mapping
+                        ensures consistent derivedKey across sessions</div>
+                    <div style="margin-bottom: 12px;">• <strong>Database foreign keys:</strong> Cascade protection with
+                        passphrase_id → master_key_id relationships</div>
+                    <div style="margin-bottom: 12px;">• <strong>Auto-cleanup TTLs:</strong> 5-minute message purge
+                        prevents data accumulation</div>
+                    <div style="margin-bottom: 12px;">• <strong>AES-GCM authentication:</strong> IV + tag fields ensure
+                        encrypted data integrity</div>
+                    <div style="margin-bottom: 12px;">• <strong>IP hash moderation:</strong> ip_hash for abuse tracking
+                        without PII storage (optional) </div>
+                    <div>• <strong>Forward secrecy:</strong> Diffie-Hellman-like session_key_json with window-based
+                        rotation</div>
+                </div>
+
+                <!-- Interactive Elements -->
+                <div class="interactive-elements">
+                    <button class="toggle-button" onclick="toggleDetail('client-detail')">Client-Side Flow</button>
+                    <button class="toggle-button" onclick="toggleDetail('server-detail')">Server-Side
+                        Architecture</button>
+                    <button class="toggle-button" onclick="toggleDetail('database-detail')">Database Schema</button>
+                    <button class="toggle-button" onclick="toggleDetail('encryption-detail')">Encryption
+                        Details</button>
+                    <button class="toggle-button" onclick="toggleDetail('ttl-detail')">TTL Management</button>
+
+                    <div id="client-detail" class="detail-panel">
+                        <h3>Client-Side Key Management</h3>
+                        <p><strong>Session-based keys:</strong> chatKey, key_hash, derivedKey exist only during active
+                            browser session - never persisted</p>
+                        <p><strong>Salt retrieval process:</strong> key_hash (SHA-256 of chatKey) → salt_key_mapping
+                            lookup → returns persistent salt</p>
+                        <p><strong>PBKDF2 derivation:</strong> PBKDF2(chatKey, salt) generates derivedKey for private
+                            message encryption</p>
+                        <p><strong>Public key consumption:</strong> Client retrieves current shareKey from
+                            session_key_json for public messages</p>
+                        <p><strong>No server storage:</strong> chatKey never leaves client, ensuring zero-knowledge
+                            architecture</p>
+                    </div>
+
+                    <div id="server-detail" class="detail-panel">
+                        <h3>Server-Side Architecture</h3>
+                        <p><strong>Master key hierarchy:</strong> passphrase_txt → SHA-256(PassKey) → AES-GCM decrypt
+                            master_key_bin key</p>
+                        <p><strong>Static key derivation:</strong> masterKey + df_key_mimicry → HMAC-SHA256 → staticKey
+                            → AES-GCM encrypt → json_key_bin storage</p>
+                        <p><strong>Session key generation:</strong> masterKey seeds session_key_json pool with
+                            Diffie-Hellman-like properties</p>
+                        <p><strong>Window management:</strong> session_key_json window_number tracks 5-minute rotation
+                            cycles</p>
+                        <p><strong>Foreign key cascade:</strong> passphrase_id → master_key_id relationships ensure data
+                            consistency</p>
+                    </div>
+
+                    <div id="database-detail" class="detail-panel">
+                        <h3>Complete Database Schema</h3>
+                        <p><strong>passphrase_txt:</strong> Root storage with 24-character passphrase, 24h rotation TTL
+                        </p>
+                        <p><strong>master_key_bin:</strong> AES-GCM encrypted master key with iv, tag, encrypted_key, x
+                            (hex validation)</p>
+                        <p><strong>json_key_bin:</strong> Encrypted static key for server JSON operations, manual TTL
+                            management</p>
+                        <p><strong>session_key_json:</strong> DH-like public key pool with offset, window_number,
+                            key_value, df_key fields</p>
+                        <p><strong>salt_key_mapping:</strong> key_hash → salt mapping for consistent PBKDF2 derivation
+                        </p>
+                        <p><strong>temp_talk_gold_json:</strong> Private messages, 5-min auto cleanup
+                        </p>
+                        <p><strong>temp_talk_silver_json:</strong> Public messages, 5-min auto cleanup
+                        </p>
+                    </div>
+
+                    <div id="encryption-detail" class="detail-panel">
+                        <h3>Encryption Mechanisms</h3>
+                        <p><strong>Private message encryption:</strong> derivedKey (PBKDF2) → AES encryption →
+                            temp_talk_gold_json content</p>
+                        <p><strong>Public message encryption:</strong> shareKey (from session_key_json) → AES encryption
+                            → temp_talk_silver_json content</p>
+                        <p><strong>Master key protection:</strong> PassKey (SHA-256 of passphrase) → AES-GCM →
+                            master_key_bin with IV/tag</p>
+                        <p><strong>Static key protection:</strong> masterKey → AES-GCM → json_key_bin.encrypted_key with
+                            authentication</p>
+                        <p><strong>Key derivation algorithms:</strong> SHA-256 for hashing, PBKDF2 for key stretching,
+                            HMAC-SHA256 for derivation</p>
+                    </div>
+
+                    <div id="ttl-detail" class="detail-panel">
+                        <h3>TTL Management Strategy</h3>
+                        <p><strong>Session TTL:</strong> chatKey, key_hash, derivedKey - cleared on browser session end
+                        </p>
+                        <p><strong>5-minute TTL:</strong> shareKey rotation in session_key_json, message cleanup in
+                            temp_talk_* tables</p>
+                        <p><strong>24-hour rotation:</strong> passphrase_txt and master_key_bin automatic refresh cycle
+                        </p>
+                        <p><strong>Manual TTL:</strong> salt_key_mapping - salts persist per key_hash for consistency.
+                        </p>
+                        <p><strong>Persistent TTL:</strong> salt values in salt_key_mapping persist across sessions for
+                            consistency</p>
+                        <p><strong>Auto cleanup:</strong> Automated 5-minute purge prevents message accumulation and
+                            storage bloat</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-area">
+                <div class="legend-section">
+                    <div class="legend-title">🎨 Color Legend</div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #2196F3, #1976D2);"></div>
+                        <div class="legend-text"><strong>Client-Side Keys:</strong> User input, never server-stored
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #4CAF50, #45a049);"></div>
+                        <div class="legend-text"><strong>Client-Side Keys:</strong> Session, never server-stored</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #9C27B0, #7B1FA2);"></div>
+                        <div class="legend-text"><strong>Database Keys:</strong> Auto-generated, rotated</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #FF9800, #F57C00);"></div>
+                        <div class="legend-text"><strong>Message Storage:</strong> Temporary, auto-cleanup</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">⏱️ TTL Categories</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Session:</strong> Browser session only (chatKey, key_hash,
+                            derivedKey)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>5 minutes:</strong> shareKey rotation, message auto-cleanup
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>24 hours:</strong> Master key rotation (passphrase_txt,
+                            master_key_bin)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Manual:</strong> Admin-controlled (salt_key_mapping)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Persistent:</strong> Long-term (salt values for consistency)
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Auto cleanup:</strong> Automated purge prevents bloat</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">🔗 Key Relationships</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>chatKey → key_hash:</strong> SHA-256 one-way hashing</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>chatKey + salt → derivedKey:</strong> PBKDF2 key stretching
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>passphrase → PassKey:</strong> SHA-256 derivation</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>masterKey + df_key_mimicry → staticKey:</strong> HMAC-SHA256
+                            derivation</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>shareKey → df_key_mimicry:</strong> Seeding mechanism for
+                            staticKey</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">🔐 Encryption Usage</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>derivedKey:</strong> Private messages (temp_talk_gold_json)
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>shareKey:</strong> Public messages (temp_talk_silver_json)
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>PassKey:</strong> master_key_bin AES-GCM encryption</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>staticKey:</strong> json_key_bin server operations</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">🗄️ Database Fields</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>PK:</strong> Primary Key (unique identifier)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>FK:</strong> Foreign Key (relationship reference)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>VARCHAR:</strong> Variable character field</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>TEXT:</strong> Large text field (encrypted content)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>BIGINT:</strong> Large integer (message IDs)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>BIGINT:</strong> Date/time tracking</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">🏗️ Architecture Layers</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>User Input:</strong> chatKey provider (never stored)</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Client-Side:</strong> Browser-based key derivation</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Server Database:</strong> Encryption keys storage</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>Server Ephemeral:</strong> Temporary file-based storage</div>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-title">🔄 Key Rotation</div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>session_key_json:</strong> 5-minute window rotation</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>master_key_bin:</strong> 24-hour automatic rotation</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>passphrase_txt:</strong> 24-hour passphrase refresh</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>df_key_mimicry:</strong> Follows shareKey rotation</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleDetail(detailId) {
+            const detail = document.getElementById(detailId);
+            const button = event.target;
+
+            // Close all other details
+            const allDetails = document.querySelectorAll('.detail-panel');
+            const allButtons = document.querySelectorAll('.toggle-button');
+
+            allDetails.forEach(d => {
+                if (d.id !== detailId) {
+                    d.classList.remove('active');
+                }
+            });
+
+            allButtons.forEach(b => {
+                if (b !== button) {
+                    b.classList.remove('active');
+                }
+            });
+
+            // Toggle current detail
+            detail.classList.toggle('active');
+            button.classList.toggle('active');
+        }
+
+        // Add hover effects for cards
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.key-card, .entity-card').forEach(card => {
+                card.addEventListener('mouseenter', function () {
+                    this.style.transform = 'translateY(-8px) scale(1.02)';
+                });
+
+                card.addEventListener('mouseleave', function () {
+                    this.style.transform = 'translateY(0) scale(1)';
+                });
+            });
+
+            // Add pulse animation to important elements
+            const pulseElements = document.querySelectorAll('.entity-name, .key-name');
+            pulseElements.forEach(element => {
+                element.addEventListener('click', function () {
+                    this.style.animation = 'pulse 0.6s ease-in-out';
+                    setTimeout(() => {
+                        this.style.animation = '';
+                    }, 600);
+                });
+            });
+        });
+
+        // Apply the same hover effect to both .relationship-item and .flow-item
+        document.querySelectorAll('.relationship-item, .flow-step').forEach(item => {
+            item.addEventListener('mouseenter', function () {
+                this.style.transform = 'scale(1.02)';
+                this.style.background = 'rgba(255,255,255,0.3)';
+            });
+
+            item.addEventListener('mouseleave', function () {
+                this.style.transform = 'scale(1)';
+                this.style.background = 'rgba(255,255,255,0.2)';
+            });
+        });
+
+        // Add CSS animation for pulse effect
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+                100% { transform: scale(1); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+
+</html>
