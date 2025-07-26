@@ -1,0 +1,59 @@
+// ... (existing code) ...
+
+// Function to manage salt-key mapping (already exists)
+function getSaltForKey($key, $saltFile)
+{
+    // ... (existing implementation) ...
+}
+
+// --- NEW ADDITION ---
+// Load the global IP hashing salt from salt.bin
+$ipHashSaltFile = '../private/salt.bin';
+$ipHashSalt = '';
+if (file_exists($ipHashSaltFile)) {
+    $ipHashSalt = file_get_contents($ipHashSaltFile);
+    if (strlen($ipHashSalt) < 16) { // Basic check for salt validity
+        // Regenerate if too short or corrupted
+        $ipHashSalt = random_bytes(16);
+        file_put_contents($ipHashSaltFile, $ipHashSalt);
+        chmod($ipHashSaltFile, 0600);
+        secureLog("Regenerated short/corrupted IP hash salt in salt.bin", 'WARNING');
+    }
+} else {
+    // If salt.bin doesn't exist, create it with a new salt
+    $ipHashSalt = random_bytes(16);
+    file_put_contents($ipHashSaltFile, $ipHashSalt);
+    chmod($ipHashSaltFile, 0600);
+    secureLog("Created new IP hash salt in salt.bin", 'INFO');
+}
+// --- END NEW ADDITION ---
+
+// Check rate limit
+$clientIP = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'];
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    if (!checkRateLimit($clientIP, 15, 60)) {
+        secureLog("Rate limit exceeded", 'WARNING');
+        http_response_code(429);
+        exit('Rate limit exceeded. Please slow down.');
+    }
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['encrypted_message'])) {
+    // ... (existing code) ...
+
+    $messages = loadMessages($chatFile);
+    $messageObj = [
+        'content'   => $encrypted_message,
+        'timestamp'   => time(),
+        // --- MODIFIED LINE ---
+        'ip_hash'   => hash('sha256', $clientIP . $ipHashSalt) // Use the loaded salt
+        // --- END MODIFIED LINE ---
+    ];
+    $messages[] = $messageObj;
+    saveMessages($chatFile, $messages, time());
+    secureLog("Message posted successfully");
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit();
+}
+
+// ... (rest of the code) ...
