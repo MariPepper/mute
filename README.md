@@ -149,6 +149,6 @@ Security Features & Architecture
     Key rotation designed for 5-minute refreshes.
     Persistent salt mapping for additional security across sessions.
     Database foreign keys ensure cascading protection.
-    Built-in IP hash protection against data breaches. (optional/not implemented)
+    Built-in IP hash protection against DDoS attacks. (see ip_hash folder)
 
 This structured overview encapsulates the architecture, focusing on key components, relationships, and security features of the MUTE system.
