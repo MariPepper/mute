@@ -1,8 +1,11 @@
 <?php
-header("Expires: 0");
-header("Cache-Control: no-store, no-cache, must-revalidate");
-header("Pragma: no-cache");
+// Headers for JSON-only response
 header('Content-Type: application/json');
+header('X-Content-Type-Options: nosniff');
+header('Strict-Transport-Security: max-age=31536000');
+header('Cache-Control: no-store'); // Simplified, no-store is sufficient
+header('Expires: 0'); // Included for compatibility
+// Optional: header('Referrer-Policy: strict-origin-when-cross-origin');
 
 if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
     header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
