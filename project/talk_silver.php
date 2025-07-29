@@ -196,7 +196,7 @@ function saveMessages($file, $messages, $timestamp)
         ];
     }, $messages);
 
-    $messagesForStorage = array_slice($messagesForStorage, -200);
+    $messagesForStorage = array_slice($messagesForStorage, -200); // overhead set as per number of users (25 users)
     $data = [
         'messages' => $messagesForStorage,
         'last_activity' => $timestamp
@@ -250,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['encrypted_message']))
             }
         });
 
-        $messages = array_slice($messages, -200);
+        $messages = array_slice($messages, -200); // overhead set as per number of users (25 users)
         $data = [
             'messages' => $messages,
             'last_activity' => $currentTime
