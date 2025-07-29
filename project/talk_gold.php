@@ -1,23 +1,3 @@
-<!DOCTYPE html>
-<html lang="en-US">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-User Encrypted Timed Chat</title>
-    <link rel="stylesheet" type="text/css" href="style-6.css">
-</head>
-
-<body>
-    <div class="container">
-        <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
-        <div class="content">
-            <div id="key-entry">
-                <label for="chat-key-input">Enter the chat key (shared offline):</label>
-                <input type="password" id="chat-key-input" minlength="16" required>
-                <button type="button" id="submit-key-btn">Submit Key</button>
-            </div>
-            <div class="chat-box" id="chat-box">
                 <?php
                 // Security Headers
                 header('X-Content-Type-Options: nosniff');
@@ -151,38 +131,57 @@
                 }, $messages);
                 echo "<script>const serverMessages = " . json_encode($messageContents) . "; const serverTime = " . time() . ";</script>";
                 ?>
-            </div>
-            <form method="POST" action="" class="chat-form" id="chat-form">
-                <div class="form-group">
-                    <input type="text" id="message-input" placeholder="Tap on the keyboard..." required maxlength="1000">
-                    <input type="hidden" name="encrypted_message" id="encrypted-message">
-                </div>
-                <div class="button-group">
-                    <button type="submit" class="submit-btn">Send</button>
-                    <button type="button" class="clear-btn" id="clear-btn">Clear</button>
-                    <button type="button" class="reset-btn" id="reset-key-btn">Reset Key</button>
-                    <button type="button" class="open-btn" id="go-public-btn">Go Public</button>
-                </div>
-            </form>
-        </div>
-        <div id="consent-box">
-            <p>We use session storage for essential chat functionality.</p>
-            <button id="accept-consent">Accept</button>
-            <button id="reject-consent">Reject</button>
-            <span class="consent-link">
-                <a href="cookie_policy.html">Cookie Policy</a>
-            </span>
-        </div>
-    </div>
+                <!DOCTYPE html>
+                <html lang="en-US">
 
-    <!-- Pass PHP data to JavaScript -->
-    <script>
-        const serverMessages = <?php echo json_encode($messageContents); ?>;
-        const serverTime = <?php echo time(); ?>;
-    </script>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Multi-User Encrypted Timed Chat</title>
+                    <link rel="stylesheet" type="text/css" href="style-6.css">
+                </head>
 
-    <!-- Load external JavaScript file -->
-    <script src="gold.js"></script>
-</body>
+                <body>
+                    <div class="container">
+                        <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
+                        <div class="content">
+                            <div id="key-entry">
+                                <label for="chat-key-input">Enter the chat key (shared offline):</label>
+                                <input type="password" id="chat-key-input" minlength="16" required>
+                                <button type="button" id="submit-key-btn">Submit Key</button>
+                            </div>
+                            <div class="chat-box" id="chat-box"></div>
+                            <form method="POST" action="" class="chat-form" id="chat-form">
+                                <div class="form-group">
+                                    <input type="text" id="message-input" placeholder="Tap on the keyboard..." required maxlength="1000">
+                                    <input type="hidden" name="encrypted_message" id="encrypted-message">
+                                </div>
+                                <div class="button-group">
+                                    <button type="submit" class="submit-btn">Send</button>
+                                    <button type="button" class="clear-btn" id="clear-btn">Clear</button>
+                                    <button type="button" class="reset-btn" id="reset-key-btn">Reset Key</button>
+                                    <button type="button" class="open-btn" id="go-public-btn">Go Public</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div id="consent-box">
+                            <p>We use session storage for essential chat functionality.</p>
+                            <button id="accept-consent">Accept</button>
+                            <button id="reject-consent">Reject</button>
+                            <span class="consent-link">
+                                <a href="cookie_policy.html">Cookie Policy</a>
+                            </span>
+                        </div>
+                    </div>
 
-</html>
+                    <!-- Pass PHP data to JavaScript -->
+                    <script>
+                        const serverMessages = <?php echo json_encode($messageContents); ?>;
+                        const serverTime = <?php echo time(); ?>;
+                    </script>
+
+                    <!-- Load external JavaScript file -->
+                    <script src="gold.js"></script>
+                </body>
+
+                </html>
