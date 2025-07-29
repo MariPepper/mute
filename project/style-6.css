@@ -141,3 +141,20 @@ body {
 sup {
     font-size: xx-small; /* Sets the font size to xx-small */
 }
+
+#key-entry {
+    display: block;
+    margin-bottom: 10px;
+}
+
+#consent-box {
+    display: none;
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #ccc;
+    width: 360px;
+    height: 90px;
+}
