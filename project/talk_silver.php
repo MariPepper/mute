@@ -74,7 +74,8 @@ function loadKey($file)
     return $realKey;
 }
 
-function generateRealKey($offset) {
+function generateRealKey($offset)
+{
     try {
         $timeWindow = floor((time() - $offset) / 300);
 
@@ -99,7 +100,7 @@ function generateRealKey($offset) {
 
         $result = gmp_powm($base, $exp, $modulus);
         error_log("Result: " . gmp_strval($result));
-        
+
         // Timing delays for side-channel mitigation
         for ($i = 0; $i < 10; $i++) {
             if (mt_rand(0, 9) === 0) {
@@ -180,7 +181,7 @@ function loadMessages($file)
 
 function saveMessages($file, $messages, $timestamp)
 {
-    $messagesForStorage = array_map(function($msg) {
+    $messagesForStorage = array_map(function ($msg) {
         return [
             'content' => $msg['content'],
             'timestamp' => $msg['timestamp']
@@ -192,7 +193,7 @@ function saveMessages($file, $messages, $timestamp)
         'messages' => $messagesForStorage,
         'last_activity' => $timestamp
     ];
-    
+
     if (!file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX)) {
         error_log("Failed to write messages to $file");
         return false;
@@ -265,14 +266,16 @@ $messages = loadMessages($chatFile);
 ?>
 <!DOCTYPE html>
 <html lang="en-US">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; font-src 'self'; img-src 'self';">
+        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; font-src 'self'; img-src 'self';">
     <title>Multi-User Encrypted Timed Chat</title>
     <link rel="stylesheet" type="text/css" href="style-6.css">
 </head>
+
 <body>
     <div class="container">
         <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
@@ -306,8 +309,9 @@ $messages = loadMessages($chatFile);
     <script>
         const initialMessages = <?php echo json_encode($messages); ?>;
     </script>
-    
+
     <!-- Load external JavaScript file -->
     <script src="silver.js"></script>
 </body>
+
 </html>
