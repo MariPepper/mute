@@ -1,0 +1,29 @@
+        .cookie-box {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+        }
+        .cookie-box h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .cookie-box h2 {
+            font-size: 18px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        .cookie-box p {
+            margin: 5px 0;
+        }
+        .cookie-box ul {
+            margin: 10px 0 10px 20px;
+            padding-left: 20px;
+        }
+        .cookie-box li {
+            margin: 5px 0;
+        }

@@ -1,0 +1,377 @@
+// Security: Clear sensitive data on page unload
+let SHARED_KEY = null;
+let derivedKey = null;
+let lastActivity = Date.now();
+
+// Consent functions
+function acceptConsent() {
+    sessionStorage.setItem('cookieConsent', 'true');
+    document.getElementById('consent-box').style.display = 'none';
+}
+
+function rejectConsent() {
+    alert("Chat requires session storage. Please accept or leave.");
+    document.getElementById('consent-box').style.display = 'none';
+    window.location.href = "about:blank";
+}
+
+// Check consent on load
+if (!sessionStorage.getItem('cookieConsent')) {
+    document.getElementById('consent-box').style.display = 'block';
+}
+
+// Function to fetch salt from server
+async function getSaltForKey(key) {
+    const keyHash = await hashKey(key);
+    const response = await fetch('get_salt.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `key_hash=${encodeURIComponent(keyHash)}`
+    });
+    if (!response.ok) throw new Error('Failed to fetch salt');
+    const data = await response.json();
+    return base64ToUint8Array(data.salt);
+}
+
+function base64ToUint8Array(base64) {
+    const binaryString = atob(base64);
+    return Uint8Array.from(binaryString, c => c.charCodeAt(0));
+}
+
+async function hashKey(key) {
+    const encoder = new TextEncoder();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(key));
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Fixed key derivation with salt per key from server
+async function deriveKey(password) {
+    try {
+        const salt = await getSaltForKey(password);
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw',
+            new TextEncoder().encode(password),
+            'PBKDF2',
+            false,
+            ['deriveBits', 'deriveKey']
+        );
+        
+        return crypto.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 100000,
+                hash: 'SHA-256'
+            },
+            keyMaterial,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    } catch (error) {
+        console.error("Key derivation error:", error);
+        throw error;
+    }
+}
+
+async function submitKey() {
+    const keyInput = document.getElementById('chat-key-input').value;
+    if (!keyInput || keyInput.length < 16) {
+        alert('Key must be at least 16 characters!');
+        return;
+    }
+    
+    try {
+        SHARED_KEY = keyInput;
+        derivedKey = await deriveKey(SHARED_KEY);
+        sessionStorage.setItem('chatKey', SHARED_KEY);
+        
+        document.getElementById('key-entry').style.display = 'none';
+        document.getElementById('chat-form').style.display = 'block';
+        
+        await initializeChat();
+    } catch (error) {
+        console.error("Error setting up key:", error);
+        alert("Error setting up encryption key. Please try again.");
+    }
+}
+
+// Initialize from session storage
+async function initializeFromStorage() {
+    SHARED_KEY = sessionStorage.getItem('chatKey');
+    if (SHARED_KEY) {
+        try {
+            derivedKey = await deriveKey(SHARED_KEY);
+            document.getElementById('key-entry').style.display = 'none';
+            document.getElementById('chat-form').style.display = 'block';
+            await initializeChat();
+        } catch (error) {
+            console.error("Error initializing from stored key:", error);
+            resetChatKey();
+        }
+    } else {
+        document.getElementById('chat-form').style.display = 'none';
+    }
+}
+
+function resetChatKey() {
+    sessionStorage.removeItem('chatKey');
+    sessionStorage.removeItem('chatMessages');
+    SHARED_KEY = null;
+    derivedKey = null;
+    location.reload();
+}
+
+// Input sanitization
+function sanitizeInput(input) {
+    return input.replace(/[<>\"'&]/g, '').trim();
+}
+
+// Enhanced encryption with timestamp and integrity
+async function encryptMessage(text) {
+    try {
+        if (!derivedKey) throw new Error("Key not derived");
+        
+        const timestamp = Date.now().toString();
+        const payload = JSON.stringify({ message: text, timestamp: parseInt(timestamp) });
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        
+        const encrypted = await crypto.subtle.encrypt(
+            { 
+                name: 'AES-GCM', 
+                iv: iv,
+                additionalData: new TextEncoder().encode(timestamp)
+            },
+            derivedKey,
+            new TextEncoder().encode(payload)
+        );
+        
+        return `${btoa(String.fromCharCode(...iv))}:${btoa(String.fromCharCode(...new Uint8Array(encrypted)))}:${timestamp}`;
+    } catch (error) {
+        console.error("Encryption error:", error);
+        throw error;
+    }
+}
+
+async function decryptMessage(encryptedStr) {
+    try {
+        if (!derivedKey) throw new Error("Key not derived");
+        
+        const parts = encryptedStr.split(':');
+        if (parts.length !== 3) throw new Error("Invalid encrypted message format");
+        
+        const [ivBase64, encryptedBase64, timestamp] = parts;
+        const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+        const encrypted = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+        
+        const decrypted = await crypto.subtle.decrypt(
+            { 
+                name: 'AES-GCM', 
+                iv: iv,
+                additionalData: new TextEncoder().encode(timestamp)
+            },
+            derivedKey,
+            encrypted
+        );
+        
+        const payload = JSON.parse(new TextDecoder().decode(decrypted));
+        return payload.message;
+    } catch (error) {
+        console.error("Decryption error:", error);
+        return null;
+    }
+}
+
+let localMessages = JSON.parse(sessionStorage.getItem('chatMessages')) || [];
+const chatBox = document.getElementById('chat-box');
+const chatForm = document.getElementById('chat-form');
+const msgInput = document.getElementById('message-input');
+
+function displayMessages(messages, referenceTime) {
+    chatBox.innerHTML = '';
+    const currentTime = referenceTime || Date.now();
+    const validMessages = messages.filter(msgObj => {
+        if (typeof msgObj === 'string') return true; // Keep legacy messages
+        const messageAge = currentTime - msgObj.timestamp;
+        const isExpired = messageAge > 300000; // 5 minutes
+        return !isExpired;
+    });
+
+    if (validMessages.length !== messages.length) {
+        localMessages = validMessages;
+        saveLocalMessages(localMessages);
+    }
+
+    validMessages.forEach(msgObj => {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message';
+        const messageText = typeof msgObj === 'string' ? msgObj : msgObj.content;
+        messageDiv.innerHTML = `<span class="message-text">${escapeHtml(messageText)}</span>`;
+        chatBox.appendChild(messageDiv);
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function saveLocalMessages(messages) {
+    sessionStorage.setItem('chatMessages', JSON.stringify(messages));
+}
+
+async function fetchMessages() {
+    if (!derivedKey) return;
+    
+    try {
+        const response = await fetch('fetch_messages_gold.php');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        const serverTimeMs = data.server_time * 1000;
+        
+        const decryptedMessages = await Promise.all(
+            data.messages.map(async (msg, index) => {
+                const encContent = typeof msg === 'object' && msg.content ? msg.content : msg;
+                const decrypted = await decryptMessage(encContent);
+                if (decrypted !== null) {
+                    const timestamp = typeof msg === 'object' && msg.timestamp ?
+                        msg.timestamp * 1000 : serverTimeMs - (index * 1000);
+                    return { content: decrypted, timestamp };
+                }
+                return null;
+            })
+        );
+        
+        const validMessages = decryptedMessages.filter(msg => msg !== null);
+        
+        if (JSON.stringify(localMessages.map(m => m.content)) !== JSON.stringify(validMessages.map(m => m.content)) || validMessages.length !== localMessages.length) {
+            localMessages = validMessages;
+            saveLocalMessages(localMessages);
+            displayMessages(localMessages, serverTimeMs);
+        }
+    } catch (error) {
+        console.error("Error fetching messages:", error);
+    }
+}
+
+async function initializeChat() {
+    try {
+        if (typeof serverMessages !== 'undefined' && serverMessages.length > 0) {
+            const decryptedServerMessages = await Promise.all(
+                serverMessages.map(async (enc, index) => {
+                    const decrypted = await decryptMessage(enc);
+                    if (decrypted !== null) {
+                        return {
+                            content: decrypted,
+                            timestamp: serverTime * 1000 - (index * 1000)
+                        };
+                    }
+                    return null;
+                })
+            );
+            localMessages = decryptedServerMessages.filter(msg => msg !== null);
+            saveLocalMessages(localMessages);
+            displayMessages(localMessages, serverTime * 1000);
+        }
+        
+        // Start periodic updates
+        setInterval(fetchMessages, 2000);
+        
+        // Periodic cleanup
+        setInterval(() => {
+            displayMessages(localMessages);
+        }, 60000);
+        
+    } catch (error) {
+        console.error("Error initializing chat:", error);
+    }
+}
+
+function clearChat() {
+    msgInput.value = '';
+}
+
+async function handleFormSubmit(e) {
+    e.preventDefault();
+    if (!derivedKey) {
+        alert("Encryption key not ready. Please wait or reset the key.");
+        return;
+    }
+    
+    let message = sanitizeInput(msgInput.value);
+    if (message && message.length > 0) {
+        // Client-side length validation
+        if (message.length > 1000) {
+            alert('Message too long (max 1000 characters)');
+            return;
+        }
+        
+        try {
+            const encrypted = await encryptMessage(message);
+            const timestamp = Date.now();
+            
+            // Add to local messages immediately for responsiveness
+            localMessages.push({ content: message, timestamp });
+            displayMessages(localMessages);
+            saveLocalMessages(localMessages);
+            
+            // Send to server
+            const formData = new FormData();
+            formData.append('encrypted_message', encrypted);
+            
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            msgInput.value = '';
+            lastActivity = Date.now(); // Update activity timestamp
+            
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("Failed to send message. Please try again.");
+            // Remove the optimistically added message
+            localMessages.pop();
+            displayMessages(localMessages);
+            saveLocalMessages(localMessages);
+        }
+    }
+}
+
+// Session timeout management
+setInterval(() => {
+    console.log("Periodic timeout check at", new Date().toLocaleTimeString());
+    if (Date.now() - lastActivity > 30 * 60 * 1000) { // 30 minutes
+        resetChatKey();
+        alert('Session expired due to inactivity');
+    }
+}, 60000);
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize from storage
+    await initializeFromStorage();
+    
+    // Event listeners
+    document.getElementById('submit-key-btn').addEventListener('click', submitKey);
+    document.getElementById('clear-btn').addEventListener('click', clearChat);
+    document.getElementById('reset-key-btn').addEventListener('click', resetChatKey);
+    document.getElementById('go-public-btn').addEventListener('click', () => {
+        location.href = 'talk_silver.php';
+    });
+    document.getElementById('accept-consent').addEventListener('click', acceptConsent);
+    document.getElementById('reject-consent').addEventListener('click', rejectConsent);
+    
+    chatForm.addEventListener('submit', handleFormSubmit);
+    
+    // Update activity on user interaction
+    document.addEventListener('click', () => lastActivity = Date.now());
+    document.addEventListener('keypress', () => lastActivity = Date.now());
+    msgInput.addEventListener('input', () => lastActivity = Date.now());
+});
