@@ -316,7 +316,7 @@ $messages = loadMessages($chatFile);
         </div>
     </div>
     <!-- Pass PHP data to JavaScript -->
-    <script>
+    <script nonce="<?php echo $nonce; ?>">
         const initialMessages = <?php echo json_encode($messages); ?>;
     </script>
 
