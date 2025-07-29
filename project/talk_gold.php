@@ -5,7 +5,7 @@
                 header('X-XSS-Protection: 1; mode=block');
                 header('Referrer-Policy: strict-origin-when-cross-origin');
                 header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
-                header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\'');
+                header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\'');
 
                 require_once 'encrypt_json.php'; // For encryptJson and decryptJson
 
