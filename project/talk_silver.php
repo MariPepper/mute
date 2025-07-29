@@ -270,8 +270,13 @@ $messages = loadMessages($chatFile);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; font-src 'self'; img-src 'self';">
+    <!-- Security Headers as Meta Tags -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Strict-Transport-Security" content="max-age=31536000; includeSubDomains; preload">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
     <title>Multi-User Encrypted Timed Chat</title>
     <link rel="stylesheet" type="text/css" href="style-6.css">
 </head>
@@ -302,7 +307,9 @@ $messages = loadMessages($chatFile);
             <p>We use local and session storage for essential chat functionality.</p>
             <button onclick="acceptConsent()">Accept</button>
             <button onclick="rejectConsent()">Reject</button>
-            <span style="margin-left: 10px;"><a href="cookie_policy.html">Cookie Policy</a></span>
+            <span class="consent-link">
+                <a href="cookie_policy.html">Cookie Policy</a>
+            </span>
         </div>
     </div>
     <!-- Pass PHP data to JavaScript -->
