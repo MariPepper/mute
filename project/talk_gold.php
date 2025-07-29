@@ -24,6 +24,7 @@
                 header('X-Frame-Options: DENY');
                 header('X-XSS-Protection: 1; mode=block');
                 header('Referrer-Policy: strict-origin-when-cross-origin');
+                header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
                 header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\'');
 
                 require_once 'encrypt_json.php'; // For encryptJson and decryptJson
@@ -168,7 +169,7 @@
             <p>We use session storage for essential chat functionality.</p>
             <button id="accept-consent">Accept</button>
             <button id="reject-consent">Reject</button>
-            <span style="margin-left: 10px;">
+            <span class="consent-link">
                 <a href="cookie_policy.html">Cookie Policy</a>
             </span>
         </div>
