@@ -1,59 +1,327 @@
-// ... (existing code) ...
+<?php
+// Security Headers
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 1; mode=block');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Strict-Transport-Security: max-age=31536000; includeSubDomains; preload');
+header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\'; style-src \'self\'');
 
-// Function to manage salt-key mapping (already exists)
+require_once 'encrypt_json.php'; // For encryptJson and decryptJson
+
+// Force HTTPS
+if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
+    header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
+    exit();
+}
+
+$chatFile = 'temp_talk_gold.json';
+$saltFile = '../private/salt_key_mapping.json'; // File for both key mappings and IP hash salt
+$rateLimitDir = '../private/rate_limits/'; // Directory for rate limit files
+$maxMessageAge = 300; // Messages expire after 5 minutes (300 seconds)
+$rateLimitFileMaxAge = 3600; // Max age for rate limit files (seconds)
+
+// Security logging function
+function secureLog($message, $level = 'INFO')
+{
+    $logFile = '../private/chat_security.log';
+    $timestamp = date('Y-m-d H:i:s');
+    $entry = "[$timestamp] [$level] $message" . PHP_EOL;
+    if (@file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX) === false) {
+        error_log("Failed to write to chat_security.log: $message");
+    }
+}
+
+// Input validation function
+function validateEncryptedMessage($message)
+{
+    if (!preg_match('/^[A-Za-z0-9+\/=]+:[A-Za-z0-9+\/=]+:[0-9]+$/', $message)) {
+        return false;
+    }
+
+    if (strlen($message) > 10000) {
+        return false;
+    }
+
+    $parts = explode(':', $message);
+    $timestamp = intval($parts[2]);
+    $currentTime = time() * 1000;
+    if ($timestamp < ($currentTime - 3600000) || $timestamp > ($currentTime + 300000)) {
+        return false;
+    }
+
+    return true;
+}
+
+// Load messages (preserves original 5-minute expiration)
+function loadMessages($file, $maxMessageAge)
+{
+    if (file_exists($file)) {
+        $data = json_decode(@file_get_contents($file), true);
+        if ($data === null) {
+            secureLog("Failed to read or parse $file", 'ERROR');
+            return [];
+        }
+        if (isset($data['messages'])) {
+            $currentTime = time();
+            if (!isset($data['last_cleanup']) || ($currentTime - $data['last_cleanup']) > 60) {
+                $validMessages = array_filter($data['messages'], function ($message) use ($currentTime, $maxMessageAge) {
+                    if (is_string($message)) {
+                        return true; // Keep legacy messages for migration
+                    }
+                    return isset($message['timestamp']) && ($currentTime - $message['timestamp']) < $maxMessageAge;
+                });
+                // Convert legacy string messages to new format
+                $validMessages = array_map(function ($message) use ($currentTime) {
+                    if (is_string($message)) {
+                        return [
+                            'content' => $message,
+                            'timestamp' => $currentTime,
+                            'ip_hash' => null // Indicate untracked IP for legacy messages
+                        ];
+                    }
+                    return $message;
+                }, array_values($validMessages));
+                if (count($validMessages) !== count($data['messages'])) {
+                    $expiredCount = count($data['messages']) - count($validMessages);
+                    secureLog("Cleaned $expiredCount expired messages");
+                    saveMessages($file, $validMessages, $currentTime, $maxMessageAge);
+                }
+                return $validMessages;
+            }
+            return $data['messages'];
+        }
+    }
+    return [];
+}
+
+// Save messages (preserves original behavior)
+function saveMessages($file, $messages, $timestamp, $maxMessageAge)
+{
+    $data = ['messages' => $messages, 'last_activity' => $timestamp, 'last_cleanup' => $timestamp];
+    if (@file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX) === false) {
+        secureLog("Failed to write to $file", 'ERROR');
+        http_response_code(500);
+        exit('Internal server error');
+    }
+    chmod($file, 0600);
+}
+
+// Clean up old rate limit files
+function cleanRateLimitFiles($rateLimitDir, $maxAge)
+{
+    if (is_dir($rateLimitDir)) {
+        $deletedFiles = 0;
+        foreach (glob($rateLimitDir . "rate_limit_*.json") as $file) {
+            if (filemtime($file) < time() - $maxAge) {
+                if (@unlink($file)) {
+                    $deletedFiles++;
+                } else {
+                    secureLog("Failed to delete old rate limit file: $file", 'WARNING');
+                }
+            }
+        }
+        if ($deletedFiles > 0) {
+            secureLog("Deleted $deletedFiles old rate limit files");
+        }
+    }
+}
+
+// Function to manage salt-key mapping
 function getSaltForKey($key, $saltFile)
 {
-    // ... (existing implementation) ...
-}
-
-// --- NEW ADDITION ---
-// Load the global IP hashing salt from salt.bin
-$ipHashSaltFile = '../private/salt.bin';
-$ipHashSalt = '';
-if (file_exists($ipHashSaltFile)) {
-    $ipHashSalt = file_get_contents($ipHashSaltFile);
-    if (strlen($ipHashSalt) < 16) { // Basic check for salt validity
-        // Regenerate if too short or corrupted
-        $ipHashSalt = random_bytes(16);
-        file_put_contents($ipHashSaltFile, $ipHashSalt);
-        chmod($ipHashSaltFile, 0600);
-        secureLog("Regenerated short/corrupted IP hash salt in salt.bin", 'WARNING');
+    $keyHash = hash('sha256', $key);
+    $data = file_exists($saltFile) ? decryptJson(@file_get_contents($saltFile)) : [];
+    if ($data === false) {
+        secureLog("Failed to read or decrypt salt_key_mapping.json", 'ERROR');
+        http_response_code(500);
+        exit('Internal server error');
     }
-} else {
-    // If salt.bin doesn't exist, create it with a new salt
-    $ipHashSalt = random_bytes(16);
-    file_put_contents($ipHashSaltFile, $ipHashSalt);
-    chmod($ipHashSaltFile, 0600);
-    secureLog("Created new IP hash salt in salt.bin", 'INFO');
+    if (!isset($data[$keyHash])) {
+        $salt = base64_encode(random_bytes(16)); // 16-byte random salt for key
+        $data[$keyHash] = $salt;
+        if (@file_put_contents($saltFile, encryptJson($data), LOCK_EX) === false) {
+            secureLog("Failed to write to salt_key_mapping.json", 'ERROR');
+            http_response_code(500);
+            exit('Internal server error');
+        }
+        chmod($saltFile, 0600);
+        secureLog("New salt generated for key hash: $keyHash");
+    }
+    return base64_decode($data[$keyHash]);
 }
-// --- END NEW ADDITION ---
 
-// Check rate limit
+// Function to manage IP hash salt
+function getIpHashSalt($saltFile)
+{
+    $data = file_exists($saltFile) ? decryptJson(@file_get_contents($saltFile)) : [];
+    if ($data === false) {
+        secureLog("Failed to read or decrypt salt_key_mapping.json", 'ERROR');
+        http_response_code(500);
+        exit('Internal server error');
+    }
+
+    $ipSaltKey = '_ip_hash_salt';
+    if (!isset($data[$ipSaltKey])) {
+        $ipHashSalt = base64_encode(random_bytes(16)); // 16-byte random salt for IP hashing
+        $data[$ipSaltKey] = $ipHashSalt;
+        if (@file_put_contents($saltFile, encryptJson($data), LOCK_EX) === false) {
+            secureLog("Failed to write IP hash salt to salt_key_mapping.json", 'ERROR');
+            http_response_code(500);
+            exit('Internal server error');
+        }
+        chmod($saltFile, 0600);
+        secureLog("Created new IP hash salt in salt_key_mapping.json", 'INFO');
+    }
+    return base64_decode($data[$ipSaltKey]);
+}
+
+// Rate limiting function
+function checkRateLimit($identifier, $maxRequests = 15, $timeWindow = 60)
+{
+    $rateLimitDir = '../private/rate_limits/';
+    if (!file_exists($rateLimitDir)) {
+        if (!mkdir($rateLimitDir, 0700, true)) {
+            secureLog("Failed to create rate_limits directory", 'ERROR');
+            http_response_code(500);
+            exit('Internal server error');
+        }
+    }
+
+    $rateLimitFile = $rateLimitDir . "rate_limit_" . hash('sha256', $identifier) . ".json";
+    $currentTime = time();
+
+    if (file_exists($rateLimitFile)) {
+        $data = json_decode(@file_get_contents($rateLimitFile), true) ?: [];
+        if ($data === null) {
+            secureLog("Failed to read or parse $rateLimitFile", 'WARNING');
+            $requests = [];
+        } else {
+            $requests = array_filter($data, function ($timestamp) use ($currentTime, $timeWindow) {
+                return ($currentTime - $timestamp) < $timeWindow;
+            });
+        }
+
+        if (count($requests) >= $maxRequests) {
+            secureLog("Rate limit exceeded for identifier: " . substr(hash('sha256', $identifier), 0, 8), 'WARNING');
+            return false;
+        }
+
+        $requests[] = $currentTime;
+    } else {
+        $requests = [$currentTime];
+    }
+
+    if (@file_put_contents($rateLimitFile, json_encode($requests), LOCK_EX) === false) {
+        secureLog("Failed to write to $rateLimitFile", 'ERROR');
+        http_response_code(500);
+        exit('Internal server error');
+    }
+    chmod($rateLimitFile, 0600);
+    return true;
+}
+
+// Get client IP and IP hash
 $clientIP = $_SERVER['HTTP_CF_CONNECTING_IP'] ?? $_SERVER['REMOTE_ADDR'];
+$ipHashSalt = getIpHashSalt($saltFile);
+$ipHash = hash('sha256', $clientIP . $ipHashSalt);
+
+// Clean up old rate limit files
+cleanRateLimitFiles($rateLimitDir, $rateLimitFileMaxAge);
+
+// Check rate limit before processing POST
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (!checkRateLimit($clientIP, 15, 60)) {
-        secureLog("Rate limit exceeded", 'WARNING');
+    if (!checkRateLimit($ipHash, 15, 60)) {
+        secureLog("Rate limit exceeded for IP hash: " . substr($ipHash, 0, 8), 'WARNING');
         http_response_code(429);
         exit('Rate limit exceeded. Please slow down.');
     }
 }
 
+// Handle POST request
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['encrypted_message'])) {
-    // ... (existing code) ...
+    $encrypted_message = trim($_POST['encrypted_message']);
 
-    $messages = loadMessages($chatFile);
+    if (empty($encrypted_message)) {
+        secureLog("Empty message submitted", 'WARNING');
+        http_response_code(400);
+        exit('Empty message');
+    }
+
+    if (!validateEncryptedMessage($encrypted_message)) {
+        secureLog("Invalid message format submitted", 'WARNING');
+        http_response_code(400);
+        exit('Invalid message format');
+    }
+
+    $messages = loadMessages($chatFile, $maxMessageAge);
     $messageObj = [
-        'content'   => $encrypted_message,
-        'timestamp'   => time(),
-        // --- MODIFIED LINE ---
-        'ip_hash'   => hash('sha256', $clientIP . $ipHashSalt) // Use the loaded salt
-        // --- END MODIFIED LINE ---
+        'content' => $encrypted_message,
+        'timestamp' => time(),
+        'ip_hash' => $ipHash // Add IP hash
     ];
     $messages[] = $messageObj;
-    saveMessages($chatFile, $messages, time());
+    saveMessages($chatFile, $messages, time(), $maxMessageAge);
+
     secureLog("Message posted successfully");
     header("Location: " . $_SERVER['PHP_SELF']);
     exit();
 }
 
-// ... (rest of the code) ...
+$messages = loadMessages($chatFile, $maxMessageAge);
+$messageContents = array_map(function ($msg) {
+    return is_array($msg) ? $msg['content'] : $msg;
+}, $messages);
+echo "<script>const serverMessages = " . json_encode($messageContents) . "; const serverTime = " . time() . ";</script>";
+?>
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-User Encrypted Timed Chat</title>
+    <link rel="stylesheet" type="text/css" href="style-6.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
+        <div class="content">
+            <div id="key-entry">
+                <label for="chat-key-input">Enter the chat key (shared offline):</label>
+                <input type="password" id="chat-key-input" minlength="16" required>
+                <button type="button" id="submit-key-btn">Submit Key</button>
+            </div>
+            <div class="chat-box" id="chat-box"></div>
+            <form method="POST" action="" class="chat-form" id="chat-form">
+                <div class="form-group">
+                    <input type="text" id="message-input" placeholder="Tap on the keyboard..." required maxlength="1000">
+                    <input type="hidden" name="encrypted_message" id="encrypted-message">
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="submit-btn">Send</button>
+                    <button type="button" class="clear-btn" id="clear-btn">Clear</button>
+                    <button type="button" class="reset-btn" id="reset-key-btn">Reset Key</button>
+                    <button type="button" class="open-btn" id="go-public-btn">Go Public</button>
+                </div>
+            </form>
+        </div>
+        <div id="consent-box">
+            <p>We use session storage for essential chat functionality.</p>
+            <button id="accept-consent">Accept</button>
+            <button id="reject-consent">Reject</button>
+            <span class="consent-link">
+                <a href="cookie_policy.html">Cookie Policy</a>
+            </span>
+        </div>
+    </div>
+
+    <!-- Pass PHP data to JavaScript -->
+    <script>
+        const serverMessages = <?php echo json_encode($messageContents); ?>;
+        const serverTime = <?php echo time(); ?>;
+    </script>
+
+    <!-- Load external JavaScript file -->
+    <script src="gold.js"></script>
+</body>
+</html>
