@@ -291,9 +291,6 @@ $messages = loadMessages($chatFile);
         <div class="content">
             <div class="chat-box" id="chat-box">
                 <div id="loading-indicator">Loading...</div>
-                <?php
-                echo "<script>const initialMessages = " . json_encode($messages) . ";</script>";
-                ?>
             </div>
             <form class="chat-form" id="chat-form" onsubmit="return false;">
                 <div class="form-group">
