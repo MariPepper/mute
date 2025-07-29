@@ -298,18 +298,17 @@ $messages = loadMessages($chatFile);
                 </div>
                 <div class="button-group">
                     <button type="submit" class="submit-btn">Send</button>
-                    <button type="button" class="clear-btn" onclick="clearChat()">Clear</button>
-                    <button type="button" class="open-btn" onclick="location.href='talk_gold.php'">Go Private</button>
+                    <button type="button" class="clear-btn" id="clear-btn">Clear</button>
+                    <button type="button" class="open-btn" id="go-private-btn">Go Private</button>
                 </div>
-            </form>
-        </div>
-        <div id="consent-box">
-            <p>We use local and session storage for essential chat functionality.</p>
-            <button onclick="acceptConsent()">Accept</button>
-            <button onclick="rejectConsent()">Reject</button>
-            <span class="consent-link">
-                <a href="cookie_policy.html">Cookie Policy</a>
-            </span>
+                <div id="consent-box">
+                    <p>We use local and session storage for essential chat functionality.</p>
+                    <button id="accept-consent">Accept</button>
+                    <button id="reject-consent">Reject</button>
+                    <span class="consent-link">
+                        <a href="cookie_policy.html">Cookie Policy</a>
+                    </span>
+                </div>
         </div>
     </div>
     <!-- Pass PHP data to JavaScript -->
