@@ -156,7 +156,7 @@ echo "<script>const serverMessages = " . json_encode($messageContents) . "; cons
             <div class="chat-box" id="chat-box"></div>
             <form method="POST" action="" class="chat-form" id="chat-form">
                 <div class="form-group">
-                    <input type="text" id="message-input" placeholder="Tap on the keyboard..." required maxlength="1000">
+                    <input type="text" id="message-input" placeholder="Tap on the keyboard..." required>
                     <input type="hidden" name="encrypted_message" id="encrypted-message">
                 </div>
                 <div class="button-group">
