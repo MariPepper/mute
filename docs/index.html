@@ -473,11 +473,12 @@
                             <div class="key-name">derivedKey</div>
                             <div class="key-ttl">TTL: Session</div>
                             <div class="key-description">PBKDF2(chatKey, salt, 100000, SHA-256). Encrypts private
-                                messages in temp_talk_gold.</div>
+                                messages in temp_talk_gold_json.</div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Server-Side / Ephemeral Keys -->
                 <div class="section">
                     <div class="section-title">
                         <div class="section-icon">S</div>
@@ -487,7 +488,18 @@
                         <div class="key-card server-key">
                             <div class="key-name">passKey</div>
                             <div class="key-ttl">TTL: Transient</div>
-                            <div class="key-description">PBKDF2(sha256, passphrase, salt, 100000), generated from passphrase_txt.content and salt_bin.salt, used to encrypt/decrypt master_key_bin</div>
+                            <div class="key-description">PBKDF2(sha256, passphrase, salt, 100000), generated from
+                                passphrase_txt.content and salt_bin.salt, used to decrypt master_key_bin</div>
+                        </div>
+                        <div class="key-card server-key">
+                            <div class="key-name">masterKey</div>
+                            <div class="key-ttl">TTL: Transient</div>
+                            <div class="key-description">Decrypted from master_key_bin using passKey, seeds session_key_json.key_value and derives staticKey via HMAC-SHA256</div>
+                        </div>
+                        <div class="key-card server-key">
+                            <div class="key-name">staticKey</div>
+                            <div class="key-ttl">TTL: Transient (when not stored)</div>
+                            <div class="key-description">HMAC-SHA256(masterKey, df_key_mimicry.df_key), used for JSON encryption/decryption when not stored in json_key_bin</div> <!-- CORRECTION: Clarified df_key_mimicry.df_key as the sole seed for staticKey, no session_key_json.df_key -->
                         </div>
                     </div>
                 </div>
@@ -562,10 +574,9 @@
                         </div>
 
                         <div class="entity-card db-key">
-                            <div class="entity-name">staticKey</div>
+                            <div class="entity-name">json_key_bin</div>
                             <div class="entity-ttl">TTL: 24h rotation</div>
-                            <div class="entity-description">HMAC-SHA256 derived. Server JSON encryption. Stored
-                                encrypted in json_key_bin.</div>
+                            <div class="entity-description">Stores encrypted staticKey, derived from masterKey and df_key_mimicry.df_key via HMAC-SHA256, used for server JSON encryption.</div> <!-- CORRECTION: Renamed staticKey entity to json_key_bin for consistency with table name, clarified df_key source -->
                             <div class="entity-fields">
                                 <div class="field">
                                     <span class="field-type primary-key">PK</span>
@@ -593,7 +604,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
-                                    <span>df_key_mimicry_id → session_key_json</span>
+                                    <span>df_key_mimicry_id → df_key_mimicry</span>
                                 </div>
                             </div>
                         </div>
@@ -601,8 +612,7 @@
                         <div class="entity-card db-key">
                             <div class="entity-name">session_key_json</div>
                             <div class="entity-ttl">TTL: 24h / 5min window</div>
-                            <div class="entity-description">Stores rotating public chat keys (shareKey) with
-                                Diffie-Hellman-like behavior and window management.</div>
+                            <div class="entity-description">Stores rotating public chat keys (shareKey) with Diffie-Hellman-like behavior and window management, used to derive df_key_mimicry.df_key.</div> <!-- CORRECTION: Clarified role in deriving df_key_mimicry.df_key -->
                             <div class="entity-fields">
                                 <div class="field">
                                     <span class="field-type primary-key">PK</span>
@@ -619,10 +629,6 @@
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
                                     <span>key_value: Base64-encoded 32-byte share key</span>
-                                </div>
-                                <div class="field">
-                                    <span class="field-type">TEXT</span>
-                                    <span>df_key: Base64-encoded derived key for staticKey seeding</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
@@ -645,9 +651,8 @@
 
                         <div class="entity-card db-key">
                             <div class="entity-name">df_key_mimicry</div>
-                            <div class="entity-ttl">TTL: 5 min (derived from shareKey)</div>
-                            <div class="entity-description">Derived from latest shareKey in session_key_json. Used
-                                server-side to seed staticKey derivation.</div>
+                            <div class="entity-ttl">TTL: 5 min (derived from session_key_json.key_value)</div>
+                            <div class="entity-description">Stores df_key, derived from session_key_json.key_value via SHA-256(counter, time_window), for seeding staticKey. References session_key_json via FK.</div> <!-- CORRECTION: Clarified df_key as sole derived key storage, linked to session_key_json -->
                             <div class="entity-fields">
                                 <div class="field">
                                     <span class="field-type primary-key">PK</span>
@@ -667,11 +672,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>shareKey: Base64-encoded 32-byte share key</span>
-                                </div>
-                                <div class="field">
-                                    <span class="field-type">TEXT</span>
-                                    <span>shareKey: Latest shareKey used for derivation</span>
+                                    <span>df_key: Base64-encoded derived key for staticKey seeding</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
@@ -679,7 +680,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
-                                    <span>session_key_id → session_key_json</span>
+                                    <span>session_key_id → session_key_json.id</span>
                                 </div>
                             </div>
                         </div>
@@ -711,8 +712,8 @@
 
                         <div class="entity-card db-key">
                             <div class="entity-name">salt_bin</div>
-                            <div class="entity-ttl">TTL: Fixed (per key_hash)</div>
-                            <div class="entity-description">Stores salt for PassKey derivation.</div>
+                            <div class="entity-ttl">TTL: Fixed (per system)</div>
+                            <div class="entity-description">Stores salt for passKey derivation, independent of salt_key_mapping.</div>
                             <div class="entity-fields">
                                 <div class="field">
                                     <span class="field-type primary-key">PK</span>
@@ -725,10 +726,6 @@
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
                                     <span>created_at</span>
-                                </div>
-                                <div class="field">
-                                    <span class="field-type foreign-key">FK</span>
-                                    <span>key_hash_id → salt_key_mapping</span>
                                 </div>
                             </div>
                         </div>
@@ -802,34 +799,39 @@
                     <div class="relationship-item">
                         <div><strong>passphrase</strong></div>
                         <div class="relationship-arrow">1:1</div>
-                        <div><strong> passphrase_txt (content) -- derives PassKey for --> master_key_bin
-                                decryption</strong></div>
+                        <div><strong>passphrase_txt.content + salt_bin.salt -- derives passKey via PBKDF2(sha256,
+                                passphrase, salt, 100000) for --> master_key_bin decryption</strong></div>
                     </div>
                     <div class="relationship-item">
                         <div><strong>masterKey</strong></div>
-                        <div class="relationship-arrow">1:1</div>
-                        <div><strong> master_key_bin (masterKey) -- decrypts/encrypts --> json_key_bin</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong>master_key_bin (masterKey) -- decrypts/encrypts --> json_key_bin and seeds session_key_json.key_value via Diffie-Hellman-like mechanism</strong></div>
                     </div>
                     <div class="relationship-item">
                         <div><strong>staticKey</strong></div>
                         <div class="relationship-arrow">1:N</div>
-                        <div><strong> json_key_bin (staticKey) -- encrypts/decrypts --> session_key_json</strong></div>
+                        <div><strong>json_key_bin (staticKey) -- encrypts/decrypts --> session_key_json</strong></div>
                     </div>
                     <div class="relationship-item">
                         <div><strong>shareKey</strong></div>
                         <div class="relationship-arrow">1:N</div>
-                        <div><strong> encrypts --> temp_talk_silver_json</strong></div>
+                        <div><strong>shareKey + per-message salt -- derives derived_key_silver via PBKDF2(sha256,
+                                shareKey, salt, 100000) -- encrypts --> temp_talk_silver_json</strong></div>
                     </div>
                     <div class="relationship-item">
-                        <div><strong>dfKey</strong></div>
-                        <div class="relationship-arrow">1:1</div>
-                        <div><strong> session_key_json (derived) -- seeds generation of --> json_key_bin</strong>
-                            (shareKey pool)</div>
+                        <div><strong>session_key_json.key_value (shareKey)</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong>derives df_key_mimicry.df_key via SHA-256(counter, time_window) (FK: session_key_id → session_key_json.id)</strong></div> <!-- CORRECTION: Changed to 1:N to reflect multiple df_key_mimicry records per session_key_json -->
+                    </div>
+                    <div class="relationship-item">
+                        <div><strong>df_key_mimicry.df_key + masterKey</strong></div>
+                        <div class="relationship-arrow">1:N</div>
+                        <div><strong>seeds staticKey via HMAC-SHA256, stored in json_key_bin (FK: master_key_id → master_key_bin.id, df_key_mimicry_id → df_key_mimicry.id)</strong></div>
                     </div>
                     <div class="relationship-item">
                         <div><strong>salt</strong></div>
                         <div class="relationship-arrow">1:N</div>
-                        <div><strong> salt_key_mapping (salt) -- used in PBKDF2 to derive --> derivedKey -- encrypts -->
+                        <div><strong>salt_key_mapping (salt) -- used in PBKDF2 to derive --> derivedKey -- encrypts -->
                                 temp_talk_gold_json</strong></div>
                     </div>
                 </div>
@@ -857,13 +859,12 @@
                     </div>
                     <div class="flow-step">
                         <div class="step-number">4</div>
-                        <div><strong>Server Master:</strong> passphrase_txt content → SHA-256 → PassKey → AES-GCM
-                            decrypt master_key_bin</div>
+                        <div><strong>Server Master:</strong> passphrase_txt.content + salt_bin.salt → PBKDF2(sha256,
+                            passphrase, salt, 100000) → passKey → AES-GCM decrypt master_key_bin</div>
                     </div>
                     <div class="flow-step">
                         <div class="step-number">5</div>
-                        <div><strong>Static Key:</strong> masterKey → HMAC-SHA256 → staticKey → AES-GCM encrypt/store in
-                            json_key_bin</div>
+                        <div><strong>Static Key:</strong> masterKey + df_key_mimicry.df_key → HMAC-SHA256 → staticKey (ephemeral or stored) → AES-GCM encrypt/store in json_key_bin</div>
                     </div>
                     <div class="flow-step">
                         <div class="step-number">6</div>
@@ -872,18 +873,16 @@
                     </div>
                     <div class="flow-step">
                         <div class="step-number">7</div>
-                        <div><strong>Public Key:</strong> session_key_json key_value → shareKey (current 5-min window)
+                        <div><strong>Public Key:</strong> session_key_json.key_value → shareKey (current 5-min window)
                         </div>
                     </div>
                     <div class="flow-step">
                         <div class="step-number">8</div>
-                        <div><strong>DF Mimicry:</strong> shareKey → df_key_mimicry (stored in session_key_json as
-                            df_key) → seeds staticKey</div>
+                        <div><strong>DF Mimicry:</strong> session_key_json.key_value (shareKey, accessed via FK session_key_id) → df_key_mimicry.df_key via SHA-256(counter, time_window) (stored in df_key_mimicry) → seeds staticKey via HMAC-SHA256 with masterKey</div>
                     </div>
                     <div class="flow-step">
                         <div class="step-number">9</div>
-                        <div><strong>Message Encryption:</strong> derivedKey encrypts private messages (gold), shareKey
-                            encrypts public messages (silver)</div>
+                        <div><strong>Message Encryption:</strong> derivedKey encrypts private messages (temp_talk_gold_json); shareKey + per-message salt → derived_key_silver via PBKDF2(sha256, shareKey, salt, 100000) encrypts public messages (temp_talk_silver_json)</div>
                     </div>
                     <div class="flow-step">
                         <div class="step-number">10</div>
@@ -896,13 +895,13 @@
                 <div class="security-highlight">
                     <div class="security-title">Security Features & Architecture</div>
                     <div style="margin-bottom: 12px;">• <strong>Multi-layer encryption:</strong> Private messages
-                        (derivedKey/PBKDF2) vs Public messages (shareKey/DH-like)</div>
+                        (derivedKey/PBKDF2) vs Public messages (derived_key_silver/PBKDF2)</div>
                     <div style="margin-bottom: 12px;">• <strong>Key rotation hierarchy:</strong> 5-min shareKey
                         rotation, 24h master key rotation, manual static key refresh</div>
                     <div style="margin-bottom: 12px;">• <strong>Persistent salt mapping:</strong> salt_key_mapping
                         ensures consistent derivedKey across sessions</div>
                     <div style="margin-bottom: 12px;">• <strong>Database foreign keys:</strong> Cascade protection with
-                        passphrase_id → master_key_id relationships</div>
+                        passphrase_id → master_key_id, df_key_mimicry_id → df_key_mimicry relationships</div> <!-- CORRECTION: Clarified FKs for staticKey -->
                     <div style="margin-bottom: 12px;">• <strong>Auto-cleanup TTLs:</strong> 5-minute message purge
                         prevents data accumulation</div>
                     <div style="margin-bottom: 12px;">• <strong>AES-GCM authentication:</strong> IV + tag fields ensure
@@ -939,16 +938,13 @@
 
                     <div id="server-detail" class="detail-panel">
                         <h3>Server-Side Architecture</h3>
-                        <p><strong>Master key hierarchy:</strong> passphrase_txt → SHA-256(PassKey) → AES-GCM decrypt
-                            master_key_bin key</p>
-                        <p><strong>Static key derivation:</strong> masterKey + df_key_mimicry → HMAC-SHA256 → staticKey
-                            → AES-GCM encrypt → json_key_bin storage</p>
+                        <p><strong>Master key hierarchy:</strong> passphrase_txt.content + salt_bin.salt → PBKDF2(sha256, passphrase, salt, 100000) → passKey → AES-GCM decrypt master_key_bin key</p>
+                        <p><strong>Static key derivation:</strong> masterKey + df_key_mimicry.df_key → HMAC-SHA256 → staticKey → AES-GCM encrypt → json_key_bin storage</p> <!-- CORRECTION: Specified df_key_mimicry.df_key as sole seed -->
                         <p><strong>Session key generation:</strong> masterKey seeds session_key_json pool with
                             Diffie-Hellman-like properties</p>
                         <p><strong>Window management:</strong> session_key_json window_number tracks 5-minute rotation
                             cycles</p>
-                        <p><strong>Foreign key cascade:</strong> passphrase_id → master_key_id relationships ensure data
-                            consistency</p>
+                        <p><strong>Foreign key cascade:</strong> passphrase_id → master_key_id, df_key_mimicry_id → df_key_mimicry, session_key_id → session_key_json ensure data consistency</p>
                     </div>
 
                     <div id="database-detail" class="detail-panel">
@@ -957,28 +953,24 @@
                         </p>
                         <p><strong>master_key_bin:</strong> AES-GCM encrypted master key with iv, tag, encrypted_key, x
                             (hex validation)</p>
-                        <p><strong>json_key_bin:</strong> Encrypted static key for server JSON operations, manual TTL
-                            management</p>
+                        <p><strong>json_key_bin:</strong> Encrypted static key for server JSON operations, linked to master_key_bin and df_key_mimicry</p> <!-- CORRECTION: Clarified json_key_bin FKs -->
                         <p><strong>session_key_json:</strong> DH-like public key pool with offset, window_number,
-                            key_value, df_key fields</p>
+                            key_value fields</p>
+                        <p><strong>df_key_mimicry:</strong> Derived df_key from session_key_json.key_value via SHA-256, 5-min TTL</p>
                         <p><strong>salt_key_mapping:</strong> key_hash → salt mapping for consistent PBKDF2 derivation
                         </p>
-                        <p><strong>temp_talk_gold_json:</strong> Private messages, 5-min auto cleanup
-                        </p>
-                        <p><strong>temp_talk_silver_json:</strong> Public messages, 5-min auto cleanup
-                        </p>
+                        <p><strong>salt_bin:</strong> Standalone salt storage for passKey derivation</p>
+                        <p><strong>temp_talk_gold_json:</strong> Private messages, 5-min auto cleanup</p>
+                        <p><strong>temp_talk_silver_json:</strong> Public messages, 5-min auto cleanup</p>
                     </div>
 
                     <div id="encryption-detail" class="detail-panel">
                         <h3>Encryption Mechanisms</h3>
                         <p><strong>Private message encryption:</strong> derivedKey (PBKDF2) → AES encryption →
                             temp_talk_gold_json content</p>
-                        <p><strong>Public message encryption:</strong> shareKey (from session_key_json) → AES encryption
-                            → temp_talk_silver_json content</p>
-                        <p><strong>Master key protection:</strong> PassKey (SHA-256 of passphrase) → AES-GCM →
-                            master_key_bin with IV/tag</p>
-                        <p><strong>Static key protection:</strong> masterKey → AES-GCM → json_key_bin.encrypted_key with
-                            authentication</p>
+                        <p><strong>Public message encryption:</strong> shareKey (from session_key_json) + per-message salt → derived_key_silver (PBKDF2) → AES encryption → temp_talk_silver_json content</p>
+                        <p><strong>Master key protection:</strong> passKey (PBKDF2 of passphrase_txt.content and salt_bin.salt) → AES-GCM → master_key_bin with IV/tag</p>
+                        <p><strong>Static key protection:</strong> masterKey + df_key_mimicry.df_key → HMAC-SHA256 → staticKey → AES-GCM → json_key_bin.encrypted_key with authentication</p>
                         <p><strong>Key derivation algorithms:</strong> SHA-256 for hashing, PBKDF2 for key stretching,
                             HMAC-SHA256 for derivation</p>
                     </div>
@@ -987,10 +979,10 @@
                         <h3>TTL Management Strategy</h3>
                         <p><strong>Session TTL:</strong> chatKey, key_hash, derivedKey - cleared on browser session end
                         </p>
-                        <p><strong>5-minute TTL:</strong> shareKey rotation in session_key_json, message cleanup in
-                            temp_talk_* tables</p>
-                        <p><strong>24-hour rotation:</strong> passphrase_txt and master_key_bin automatic refresh cycle
-                        </p>
+                        <p><strong>5-minute TTL:</strong> shareKey rotation in session_key_json, df_key_mimicry, message cleanup in
+                            temp_talk_* tables</p> <!-- CORRECTION: Added df_key_mimicry to 5-minute TTL -->
+                        <p><strong>24-hour rotation:</strong> passphrase_txt, master_key_bin, json_key_bin automatic refresh cycle
+                        </p> <!-- CORRECTION: Added json_key_bin to 24-hour TTL -->
                         <p><strong>Manual TTL:</strong> salt_key_mapping - salts persist per key_hash for consistency.
                         </p>
                         <p><strong>Persistent TTL:</strong> salt values in salt_key_mapping persist across sessions for
@@ -1034,12 +1026,12 @@
                             derivedKey)</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>5 minutes:</strong> shareKey rotation, message auto-cleanup
-                        </div>
+                        <div class="legend-text"><strong>5 minutes:</strong> shareKey rotation, df_key_mimicry, message auto-cleanup
+                        </div> <!-- CORRECTION: Added df_key_mimicry to 5-minute TTL -->
                     </div>
                     <div class="legend-item">
                         <div class="legend-text"><strong>24 hours:</strong> Master key rotation (passphrase_txt,
-                            master_key_bin)</div>
+                            master_key_bin, json_key_bin)</div> <!-- CORRECTION: Added json_key_bin to 24-hour TTL -->
                     </div>
                     <div class="legend-item">
                         <div class="legend-text"><strong>Manual:</strong> Admin-controlled (salt_key_mapping)</div>
@@ -1063,15 +1055,13 @@
                         </div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>passphrase → PassKey:</strong> SHA-256 derivation</div>
+                        <div class="legend-text"><strong>passphrase_txt.content + salt_bin.salt → passKey:</strong> PBKDF2(sha256, passphrase, salt, 100000) derivation</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>masterKey + df_key_mimicry → staticKey:</strong> HMAC-SHA256
-                            derivation</div>
+                        <div class="legend-text"><strong>masterKey + df_key_mimicry.df_key → staticKey:</strong> HMAC-SHA256 derivation</div> <!-- CORRECTION: Removed session_key_json.df_key reference -->
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>shareKey → df_key_mimicry:</strong> Seeding mechanism for
-                            staticKey</div>
+                        <div class="legend-text"><strong>session_key_json.key_value → df_key_mimicry.df_key:</strong> SHA-256(counter, time_window) derivation via FK session_key_id</div>
                     </div>
                 </div>
 
@@ -1082,11 +1072,10 @@
                         </div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>shareKey:</strong> Public messages (temp_talk_silver_json)
-                        </div>
+                        <div class="legend-text"><strong>derived_key_silver:</strong> Public messages (temp_talk_silver_json, derived from shareKey via PBKDF2)</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>PassKey:</strong> master_key_bin AES-GCM encryption</div>
+                        <div class="legend-text"><strong>passKey:</strong> master_key_bin AES-GCM decryption</div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-text"><strong>staticKey:</strong> json_key_bin server operations</div>
@@ -1143,7 +1132,10 @@
                         <div class="legend-text"><strong>passphrase_txt:</strong> 24-hour passphrase refresh</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-text"><strong>df_key_mimicry:</strong> Follows shareKey rotation</div>
+                        <div class="legend-text"><strong>df_key_mimicry:</strong> 5-minute rotation aligned with shareKey</div> <!-- CORRECTION: Clarified df_key_mimicry rotation -->
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-text"><strong>json_key_bin:</strong> 24-hour rotation aligned with master_key_bin</div> <!-- CORRECTION: Added json_key_bin rotation -->
                     </div>
                 </div>
             </div>
