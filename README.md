@@ -152,13 +152,13 @@ Key Relationships
    **Description**: `masterKey` seeds `shareKey` via Diffie-Hellman-like mechanism.
 - **session_key_json.key_value → df_key_mimicry.df_key**
   
-   **Description**: `shareKey` derives `df_key` via SHA-256(counter, time_window); FK: `session_key_id`.
+   **Description**: `shareKey` derives `df_key` via SHA-256(counter, time_window).
 - **masterKey + df_key_mimicry.df_key → staticKey**
   
-   **Description**: HMAC-SHA256 derives `staticKey`; FKs: `master_key_id`, `df_key_mimicry_id`.
+   **Description**: HMAC-SHA256 derives `staticKey`.
 - **staticKey ↔ session_key_json**
   
-   **Description**: `staticKey` encrypts/decrypts `session_key_json`; FK: `static_key_id`.
+   **Description**: `staticKey` encrypts/decrypts `session_key_json`.
 - **shareKey + per-message salt → derived_key_silver**
   
    **Description**: PBKDF2(`shareKey`, salt) derives `derived_key_silver` for public messages.
