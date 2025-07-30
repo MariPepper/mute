@@ -76,12 +76,15 @@ In summary, the implementation requires a robust PHP environment with specific e
 
 Client-Side / Ephemeral Keys
 - **chatKey**
+- 
    **Type**: TTL: Session
    **Description**: User's private secret key. Used to generate `key_hash` and `derivedKey` for private chat encryption; never stored server-side.
 - **key_hash**
+- 
    **Type**: TTL: Session
    **Description**: SHA-256 digest of `chatKey`. Used to retrieve salt from `salt_key_mapping` for `derivedKey`.
 - **derivedKey**
+- 
    **Type**: TTL: Session
    **Description**: PBKDF2(`chatKey`, `salt_key_mapping.salt`, 100000, SHA-256) derived key; encrypts private messages in `temp_talk_gold_json`.
 
