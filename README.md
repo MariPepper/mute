@@ -76,7 +76,7 @@ In summary, the implementation requires a robust PHP environment with specific e
 
 Client-Side / Ephemeral Keys
 
-    chatkey
+    chatKey
         Type: TTL: session
         Description: User's private secret key. Used for mandatory encryption; never stored server-side.
 
@@ -86,15 +86,13 @@ Client-Side / Ephemeral Keys
 
     derivedKey
         Type: TTL: session
-        Description: PKDF2-derived key; used for encrypting private messages in term: salt_val.
+        Description: PBKDF2(chatKey, salt, 100000, SHA-256) derived key; used for encrypting private messages in term: salt_val.
 
-    salt
-        Type: TTL: Fixed (key for hash)
-        Description: Random 16 bytes for PBKDF2 derivation, derived from user key hash.
+Server-Side / Ephemeral Keys
 
-    shareKey
-        Type: TTL: 5 min
-        Description: Current public key from session key, sim-DI-like refresh every 5 minutes.
+    passKey
+        Type: TTL: Transient
+        Description: PBKDF2(sha256, passphrase, salt, 100000), used to encrypt/decrypt master_key_bin
 
 Database Entities
 
@@ -115,6 +113,9 @@ Database Entities
 
     salt_key_mapping
         Maps cryptographic hashes to their unique salts for consistent PBKDF key derivation.
+
+    salt_bin
+        Stores salt for PassKey derivation.
 
 Key Relationships
 
