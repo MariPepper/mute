@@ -175,6 +175,10 @@
         }
 
         .server-key {
+            border-left-color: #f4f486;
+        }
+
+        .db-key {
             border-left-color: #9C27B0;
         }
 
@@ -462,26 +466,29 @@
                         <div class="key-card client-key">
                             <div class="key-name">key_hash</div>
                             <div class="key-ttl">TTL: Session</div>
-                            <div class="key-description">SHA-256(chatKey). Used for salt retrieval mapping in
+                            <div class="key-description">SHA-256(chatKey) in hex. Used for salt retrieval mapping in
                                 salt_key_mapping table.</div>
                         </div>
                         <div class="key-card client-key">
                             <div class="key-name">derivedKey</div>
                             <div class="key-ttl">TTL: Session</div>
-                            <div class="key-description">PBKDF2(chatKey, salt). Encrypts private messages in
+                            <div class="key-description">PBKDF2(chatKey, salt, 100000, SHA-256). Encrypts private
+                                messages in
                                 temp_talk_gold.</div>
                         </div>
-                        <div class="key-card client-key">
-                            <div class="key-name">salt</div>
-                            <div class="key-ttl">TTL: Fixed (per key_hash)</div>
-                            <div class="key-description">Random 16 bytes for PBKDF2 derivation. Mapped to key_hash in
-                                database.</div>
-                        </div>
-                        <div class="key-card client-key">
-                            <div class="key-name">shareKey</div>
-                            <div class="key-ttl">TTL: 5 min</div>
-                            <div class="key-description">Current public key from session_key_json. DH-like rotation
-                                every 5 minutes.</div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">
+                        <div class="section-icon">S</div>
+                        Server-Side / Ephemeral Keys
+                    </div>
+                    <div class="keys-grid">
+                        <div class="key-card server-key">
+                            <div class="key-name">passKey</div>
+                            <div class="key-ttl">TTL: Transient</div>
+                            <div class="key-description">PBKDF2(sha256, passphrase, salt, 100000), generated from passphrase_txt.content and salt_bin.salt, used to encrypt/decrypt master_key_bin</div>
                         </div>
                     </div>
                 </div>
@@ -493,7 +500,7 @@
                         Database Entities
                     </div>
                     <div class="entity-grid">
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">passphrase_txt</div>
                             <div class="entity-ttl">TTL: 24h rotation</div>
                             <div class="entity-description">Stores the root passphrase (24 characters) for the system's
@@ -509,12 +516,16 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
-                                    <span>created_at, updated_at</span>
+                                    <span>created_at</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>updated_at</span>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">master_key_bin</div>
                             <div class="entity-ttl">TTL: 24h rotation</div>
                             <div class="entity-description">Stores the AES-GCM encrypted master key with IV, tag, and
@@ -526,19 +537,23 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>iv: Base64 IV for AES-GCM</span>
+                                    <span>iv: Base64 IV for AES-GCM IV (12 bytes)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>tag: Base64 authentication tag</span>
+                                    <span>tag: Base64-encoded AES-GCM tag (16 bytes)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>encrypted_key: Encrypted master key</span>
+                                    <span>encrypted_key: Base64-encoded AES-GCM master key encrypted</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">VARCHAR(64)</span>
-                                    <span>x: Hex validation data</span>
+                                    <span>x: Hex string of 32-byte private exponent</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
@@ -547,7 +562,7 @@
                             </div>
                         </div>
 
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">staticKey</div>
                             <div class="entity-ttl">TTL: 24h rotation</div>
                             <div class="entity-description">HMAC-SHA256 derived. Server JSON encryption. Stored
@@ -559,36 +574,32 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span> df_key: Seed from session_keys</span>
+                                    <span>iv: Base64-encoded AES-GCM IV (12 bytes)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>iv: AES-GCM initialization vector</span>
+                                    <span>tag: Base64-encoded AES-GCM tag (16 bytes)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>tag: Authentication tag</span>
-                                </div>
-                                <div class="field">
-                                    <span class="field-type">TEXT</span>
-                                    <span>encrypted_key: Static key encrypted</span>
+                                    <span>encrypted_key: Base64-encoded AES-GCM static key encrypted</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
                                     <span>created_at</span>
-                                </div>                                
+                                </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
                                     <span>master_key_id → master_key_bin</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
-                                    <span>session_key_id → session_key_json</span>
+                                    <span>df_key_mimicry_id → session_key_json</span>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">session_key_json</div>
                             <div class="entity-ttl">TTL: 24h / 5min window</div>
                             <div class="entity-description">Stores rotating public chat keys (shareKey) with
@@ -600,7 +611,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">INT</span>
-                                    <span>offset: Base for time windows</span>
+                                    <span>offset: Random offset (0-86400) for time windows</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">INT</span>
@@ -608,15 +619,23 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>key_value: Base64 key for window</span>
+                                    <span>key_value: Base64-encoded 32-byte share key</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>df_key: Base64 derived key</span>
+                                    <span>df_key: Base64-encoded derived key for staticKey seeding</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
-                                    <span>last_cleanup, last_rotation, created</span>
+                                    <span>last_cleanup</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>last_rotation</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
@@ -625,7 +644,7 @@
                             </div>
                         </div>
 
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">df_key_mimicry</div>
                             <div class="entity-ttl">TTL: 5 min (derived from shareKey)</div>
                             <div class="entity-description">Derived from latest shareKey in session_key_json. Used
@@ -637,19 +656,19 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">INT</span>
-                                    <span>offset, time_window, counter</span>
+                                    <span>offset: Random offset (0-86400)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">INT</span>
-                                    <span>time_window</span>
+                                    <span>time_window: 5-minute time window</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">INT</span>
-                                    <span>counter</span>
+                                    <span>counter: Counter based on time/300</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>df_key: Server-managed value influencing static key derivation</span>
+                                    <span>shareKey: Base64-encoded 32-byte share key</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
@@ -666,7 +685,7 @@
                             </div>
                         </div>
 
-                        <div class="entity-card server-key">
+                        <div class="entity-card db-key">
                             <div class="entity-name">salt_key_mapping</div>
                             <div class="entity-ttl">TTL: Manual/Persistent</div>
                             <div class="entity-description">Maps chatKey hashes to their unique salts for consistent
@@ -678,7 +697,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">VARCHAR(64)</span>
-                                    <span>key_hash: SHA-256 of chatKey</span>
+                                    <span>key_hash: SHA-256 of chatKey(hex)</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
@@ -687,6 +706,30 @@
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
                                     <span>created_at</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="entity-card db-key">
+                            <div class="entity-name">salt_bin</div>
+                            <div class="entity-ttl">TTL: Fixed (per key_hash)</div>
+                            <div class="entity-description">Stores salt for PassKey derivation</div>
+                            <div class="entity-fields">
+                                <div class="field">
+                                    <span class="field-type primary-key">PK</span>
+                                    <span>id: INT</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">Binary(16)</span>
+                                    <span>salt: 16-byte random salt for PBKDF2</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type">BIGINT</span>
+                                    <span>created_at</span>
+                                </div>
+                                <div class="field">
+                                    <span class="field-type foreign-key">FK</span>
+                                    <span>key_hash_id → salt_key_mapping</span>
                                 </div>
                             </div>
                         </div>
@@ -703,7 +746,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>content: Encrypted message content</span>
+                                    <span>content: Base64-encoded encrypted message</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">VARCHAR(64)</span>
@@ -712,7 +755,7 @@
                                 <div class="field">
                                     <span class="field-type">BIGINT</span>
                                     <span>last_activity: Unix timestamp</span>
-                                </div>                                
+                                </div>
                                 <div class="field">
                                     <span class="field-type foreign-key">FK</span>
                                     <span>salt_mapping_id → salt_key_mapping</span>
@@ -732,7 +775,7 @@
                                 </div>
                                 <div class="field">
                                     <span class="field-type">TEXT</span>
-                                    <span>content: Encrypted message content + timestamp</span>
+                                    <span>content: Base64-encoded encrypted message</span>
                                 </div>
                                 <div class="field">
                                     <span class="field-type">VARCHAR(64)</span>
@@ -970,6 +1013,10 @@
                     <div class="legend-item">
                         <div class="legend-color" style="background: linear-gradient(135deg, #4CAF50, #45a049);"></div>
                         <div class="legend-text"><strong>Client-Side Keys:</strong> Session, never server-stored</div>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: linear-gradient(135deg, #f5ff63, #f4f486);"></div>
+                        <div class="legend-text"><strong>Server-Side Keys:</strong> Session, never server-stored</div>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background: linear-gradient(135deg, #9C27B0, #7B1FA2);"></div>
