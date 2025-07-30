@@ -72,7 +72,7 @@ In summary, the implementation requires a robust PHP environment with specific e
 
 >> https://maripepper.github.io/mute/
 
-<img width="2880" height="7384" alt="mute_edr" src="https://github.com/user-attachments/assets/5b8f4687-ffae-46d8-8de1-65b28423cb1d" />
+<img width="2880" height="7556" alt="mute_edr" src="https://github.com/user-attachments/assets/ad2554f1-a395-4067-b268-10c9be37e1e1" />
 
 Client-Side / Ephemeral Keys
 
