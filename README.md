@@ -76,47 +76,59 @@ In summary, the implementation requires a robust PHP environment with specific e
 
 Client-Side / Ephemeral Keys
 - **chatKey**
-- 
-   **Type**: TTL: Session
+ 
+   TTL: Session
    **Description**: User's private secret key. Used to generate `key_hash` and `derivedKey` for private chat encryption; never stored server-side.
 - **key_hash**
-- 
-   **Type**: TTL: Session
+ 
+   TTL: Session
    **Description**: SHA-256 digest of `chatKey`. Used to retrieve salt from `salt_key_mapping` for `derivedKey`.
 - **derivedKey**
-- 
-   **Type**: TTL: Session
+ 
+   TTL: Session
    **Description**: PBKDF2(`chatKey`, `salt_key_mapping.salt`, 100000, SHA-256) derived key; encrypts private messages in `temp_talk_gold_json`.
 
 Server-Side / Ephemeral Keys
 - **passKey**
-   **Type**: TTL: Transient
+ 
+   TTL: Transient
    **Description**: PBKDF2(`passphrase_txt.content`, `salt_bin.salt`, 100000, SHA-256); decrypts `master_key_bin` to get `masterKey`.
 - **masterKey**
-   **Type**: TTL: Transient
+ 
+   TTL: Transient
    **Description**: Decrypted from `master_key_bin`; seeds `session_key_json.key_value` and derives `staticKey`.
 - **staticKey**
-   **Type**: TTL: Transient (when not stored)
+ 
+   TTL: Transient (when not stored)
    **Description**: HMAC-SHA256(`masterKey`, `df_key_mimicry.df_key`); encrypts server JSON, stored in `json_key_bin`.
 
 Database Entities
 - **passphrase_txt**
+ 
    **Description**: Stores root passphrase (24 characters) for `passKey` derivation; 24-hour rotation.
 - **master_key_bin**
+ 
    **Description**: Stores AES-GCM encrypted `masterKey`; used for system-wide key derivation; 24-hour rotation.
-- **json_key_bin**
+ **json_key_bin**
+- 
    **Description**: Stores encrypted `staticKey` (HMAC-SHA256 derived); used for server JSON encryption; 24-hour rotation.
 - **session_key_json**
+ 
    **Description**: Stores public `shareKey` (`key_value`) with Diffie-Hellman-like rotation; derives `df_key_mimicry.df_key`; 24-hour TTL, 5-minute windows.
 - **df_key_mimicry**
+ 
    **Description**: Stores `df_key`, derived from `session_key_json.key_value` via SHA-256; seeds `staticKey`; 5-minute TTL.
 - **salt_key_mapping**
+ 
    **Description**: Maps `key_hash` to salts for consistent `derivedKey` derivation; persistent TTL.
 - **salt_bin**
+ 
    **Description**: Stores fixed salt for `passKey` derivation; persistent TTL.
 - **temp_talk_gold_json**
+ 
    **Description**: Stores encrypted private messages (`derivedKey`); 5-minute TTL with auto-cleanup.
 - **temp_talk_silver_json**
+ 
    **Description**: Stores encrypted public messages (`derived_key_silver`); 5-minute TTL with auto-cleanup.
 
 Key Relationships
