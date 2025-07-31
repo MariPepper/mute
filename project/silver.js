@@ -1,4 +1,3 @@
-// Changed from localStorage to sessionStorage for cookieConsent to align with gold.js
 function acceptConsent() {
     sessionStorage.setItem('cookieConsent', 'true');
     document.getElementById('consent-box').style.display = 'none';
@@ -10,7 +9,6 @@ function rejectConsent() {
     window.location.href = "about:blank";
 }
 
-// Changed from localStorage to sessionStorage for consistency with gold.js
 if (!sessionStorage.getItem('cookieConsent')) {
     const consentBox = document.getElementById('consent-box');
     if (consentBox) {
@@ -19,15 +17,12 @@ if (!sessionStorage.getItem('cookieConsent')) {
 }
 
 const keyManager = (() => {
-    const KEY_TTL = 60000; // 60 seconds
-
-    // Load state from sessionStorage
+    const KEY_TTL = 60000;
     let state = JSON.parse(sessionStorage.getItem('keyManagerState')) || {
         keys: [],
         lastFetch: 0
     };
 
-    // Save state to sessionStorage
     const saveState = () => {
         sessionStorage.setItem('keyManagerState', JSON.stringify(state));
     };
@@ -44,11 +39,13 @@ const keyManager = (() => {
                         method: 'POST',
                         body: formData
                     });
+                    const responseText = await response.text();
+                    console.log("Key fetch response:", responseText);
                     if (!response.ok) {
-                        console.error('Key fetch failed:', response.status);
-                        throw new Error('Failed to fetch key');
+                        console.error('Key fetch failed:', response.status, response.statusText);
+                        throw new Error('Failed to fetch key: HTTP ' + response.status);
                     }
-                    const data = await response.json();
+                    const data = JSON.parse(responseText);
                     if (data.error) {
                         console.error('Server error:', data.error);
                         throw new Error(data.error);
@@ -98,8 +95,11 @@ async function encryptMessage(text) {
             keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
         );
         const iv = crypto.getRandomValues(new Uint8Array(12));
+        const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
+        const timestamp = Math.floor(Date.now() / 1000); // Server-compatible timestamp (seconds)
+        const payload = JSON.stringify({ name: displayName, message: text, timestamp });
         const encrypted = await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv }, derivedKey, encoder.encode(text)
+            { name: 'AES-GCM', iv }, derivedKey, encoder.encode(payload)
         );
         const saltBase64 = btoa(String.fromCharCode(...salt));
         const ivBase64 = btoa(String.fromCharCode(...iv));
@@ -138,15 +138,14 @@ async function decryptMessage(encryptedStr) {
                 const decrypted = await crypto.subtle.decrypt(
                     { name: 'AES-GCM', iv }, derivedKey, encrypted
                 );
-                const result = arrayBufferToStr(decrypted);
-                console.log("Decryption successful:", result);
-                return result;
+                const payload = JSON.parse(arrayBufferToStr(decrypted));
+                console.log("Decryption successful:", payload);
+                return { name: payload.name || 'Anonymous', message: payload.message, timestamp: payload.timestamp };
             } catch (error) {
                 console.warn("Decryption attempt failed with key:", sharedKey, "Error:", error.message);
                 continue;
             }
         }
-        // If decryption fails, force a key refresh and try again
         console.log("Decryption failed with current keys, forcing key refresh...");
         allKeys = await keyManager.forceRefresh();
         for (const sharedKey of allKeys) {
@@ -163,9 +162,9 @@ async function decryptMessage(encryptedStr) {
                 const decrypted = await crypto.subtle.decrypt(
                     { name: 'AES-GCM', iv }, derivedKey, encrypted
                 );
-                const result = arrayBufferToStr(decrypted);
-                console.log("Decryption successful after refresh:", result);
-                return result;
+                const payload = JSON.parse(arrayBufferToStr(decrypted));
+                console.log("Decryption successful after refresh:", payload);
+                return { name: payload.name || 'Anonymous', message: payload.message, timestamp: payload.timestamp };
             } catch (error) {
                 console.warn("Retry decryption attempt failed with key:", sharedKey, "Error:", error.message);
                 continue;
@@ -197,13 +196,12 @@ async function decryptMessageLegacy(encryptedStr) {
                 );
                 const result = arrayBufferToStr(decrypted);
                 console.log("Legacy decryption successful:", result);
-                return result;
+                return { name: 'Anonymous', message: result, timestamp: Math.floor(Date.now() / 1000) };
             } catch (error) {
                 console.warn("Legacy decryption attempt failed with key:", sharedKey, "Error:", error.message);
                 continue;
             }
         }
-        // Force a key refresh and retry
         console.log("Legacy decryption failed with current keys, forcing key refresh...");
         allKeys = await keyManager.forceRefresh();
         for (const sharedKey of allKeys) {
@@ -218,7 +216,7 @@ async function decryptMessageLegacy(encryptedStr) {
                 );
                 const result = arrayBufferToStr(decrypted);
                 console.log("Legacy decryption successful after refresh:", result);
-                return result;
+                return { name: 'Anonymous', message: result, timestamp: Math.floor(Date.now() / 1000) };
             } catch (error) {
                 console.warn("Retry legacy decryption attempt failed with key:", sharedKey, "Error:", error.message);
                 continue;
@@ -235,54 +233,69 @@ async function decryptMessageLegacy(encryptedStr) {
 let isFetchingMessages = false;
 let lastMessageFetch = 0;
 const messageExpirationTimes = new Map();
-let lastMessageTimestamp = 0; // Track the latest message timestamp
+let lastMessageTimestamp = 0;
 
-async function renderMessages(messages, chatBox) {
-    console.log('Rendering messages:', messages);
-    const isNearBottom = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 50;
-    chatBox.innerHTML = '';
+async function renderMessages(messages, chatBox, append = false) {
+    console.log('Rendering messages:', messages, 'Append:', append);
+    if (!append) {
+        chatBox.innerHTML = '';
+    }
 
-    if (messages.length === 0) {
+    if (messages.length === 0 && chatBox.children.length === 0) {
         chatBox.innerHTML = '<div class="no-messages">No messages to display.</div>';
         return;
     }
 
     messages.sort((a, b) => a.timestamp - b.timestamp);
     messages.forEach(msg => {
+        if (typeof msg.decrypted === 'string' && msg.decrypted === '[Failed to decrypt]') {
+            console.log('Skipping failed decryption:', msg.encrypted);
+            return;
+        }
         const msgDiv = document.createElement('div');
         msgDiv.className = 'message';
-        msgDiv.textContent = msg.decrypted;
+        const name = msg.decrypted.name || 'Anonymous';
+        const content = msg.decrypted.message;
+        const timestamp = msg.decrypted.timestamp || msg.timestamp;
+        msgDiv.innerHTML = `
+            <span class="message-name">${name}</span>
+            <span class="message-text">${content}</span>
+        `;
         msgDiv.dataset.enc = msg.encrypted;
-        const expirationTime = (parseInt(msg.timestamp, 10) + 300) * 1000;
+        const expirationTime = (parseInt(timestamp, 10) + 300) * 1000;
         messageExpirationTimes.set(msg.encrypted, expirationTime);
         chatBox.appendChild(msgDiv);
-        lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
+        lastMessageTimestamp = Math.max(lastMessageTimestamp, timestamp);
     });
 
+    const isNearBottom = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 50;
     if (isNearBottom) {
         chatBox.scrollTop = chatBox.scrollHeight;
     }
-    console.log('Messages rendered. Total messages:', messages.length);
+    console.log('Messages rendered. Total messages:', messages.length, 'Last timestamp:', lastMessageTimestamp);
 }
 
 function checkMessageExpirations() {
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) return;
-    
+
     const now = Date.now();
     const messages = chatBox.querySelectorAll('.message');
-    
+    let removed = false;
+
     messages.forEach(msgDiv => {
         const encryptedContent = msgDiv.dataset.enc;
         const expirationTime = messageExpirationTimes.get(encryptedContent);
-        
+
         if (expirationTime && now >= expirationTime) {
+            console.log('Removing expired message:', encryptedContent, 'Expiration:', expirationTime, 'Now:', now);
             msgDiv.remove();
             messageExpirationTimes.delete(encryptedContent);
+            removed = true;
         }
     });
 
-    if (chatBox.children.length === 0) {
+    if (removed && chatBox.children.length === 0) {
         chatBox.innerHTML = '<div class="no-messages">No messages to display.</div>';
     }
 }
@@ -293,12 +306,12 @@ async function fetchMessages() {
         return;
     }
     const now = Date.now();
-    if (now - lastMessageFetch < 500) {
+    if (now - lastMessageFetch < 1000) {
         console.log('Too soon to fetch messages, last fetch:', lastMessageFetch);
         return;
     }
-    lastMessageFetch = now;
     isFetchingMessages = true;
+    lastMessageFetch = now;
 
     try {
         console.log('Fetching messages from fetch_messages_silver.php...');
@@ -306,12 +319,19 @@ async function fetchMessages() {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache' }
         });
+        const responseText = await response.text();
+        console.log('Fetch messages response:', responseText);
         if (!response.ok) {
-            console.error('Failed to fetch messages, status:', response.status);
+            console.error('Failed to fetch messages, status:', response.status, response.statusText);
             return;
         }
-        const data = await response.json();
-        console.log('Fetched messages:', data);
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (error) {
+            console.error('Failed to parse fetch messages response:', responseText);
+            return;
+        }
         const encryptedMessages = Array.isArray(data) ? data : (data.messages || []);
         const chatBox = document.getElementById('chat-box');
         if (!chatBox) {
@@ -350,26 +370,7 @@ async function fetchMessages() {
         }
 
         console.log('New messages to render:', newMessages);
-        const isNearBottom = chatBox.scrollTop + chatBox.clientHeight >= chatBox.scrollHeight - 50;
-        newMessages.sort((a, b) => a.timestamp - b.timestamp);
-        newMessages.forEach(msg => {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'message';
-            msgDiv.textContent = msg.decrypted;
-            msgDiv.dataset.enc = msg.encrypted;
-            const expirationTime = (parseInt(msg.timestamp, 10) + 300) * 1000;
-            messageExpirationTimes.set(msg.encrypted, expirationTime);
-            chatBox.appendChild(msgDiv);
-            lastMessageTimestamp = Math.max(lastMessageTimestamp, msg.timestamp);
-        });
-
-        if (isNearBottom && newMessages.length > 0) {
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        if (chatBox.children.length === 0) {
-            chatBox.innerHTML = '<div class="no-messages">No messages to display.</div>';
-        }
+        await renderMessages(newMessages, chatBox, true); // Append new messages
     } catch (error) {
         console.error('Error in fetchMessages:', error.message);
     } finally {
@@ -405,7 +406,7 @@ async function loadInitialMessages() {
 
     if (loadingIndicator) loadingIndicator.remove();
 
-    setInterval(fetchMessages, 1000);
+    setInterval(fetchMessages, 2000); // Increased interval to avoid race conditions
     setInterval(checkMessageExpirations, 1000);
     setInterval(simpleKeyRotation, 60000);
 }
@@ -422,13 +423,13 @@ async function simpleKeyRotation() {
             method: 'POST',
             body: formData
         });
-
+        const responseText = await response.text();
+        console.log('Rotation check response:', responseText);
         if (!response.ok) {
-            console.error('Rotation check failed:', response.status);
+            console.error('Rotation check failed:', response.status, response.statusText);
             return;
         }
-
-        const data = await response.json();
+        const data = JSON.parse(responseText);
         if (data.needsRotation) {
             console.log("Rotation needed, triggering rotation...");
             const rotateFormData = new FormData();
@@ -437,13 +438,13 @@ async function simpleKeyRotation() {
                 method: 'POST',
                 body: rotateFormData
             });
-
+            const rotateResponseText = await rotateResponse.text();
+            console.log('Rotation response:', rotateResponseText);
             if (!rotateResponse.ok) {
-                console.error('Rotation failed:', rotateResponse.status);
+                console.error('Rotation failed:', rotateResponse.status, rotateResponse.statusText);
                 return;
             }
-
-            const rotateData = await rotateResponse.json();
+            const rotateData = JSON.parse(rotateResponseText);
             if (rotateData.success) {
                 await keyManager.forceRefresh();
                 console.log('Keys refreshed after rotation');
@@ -458,48 +459,78 @@ async function simpleKeyRotation() {
     }
 }
 
-function handleFormSubmit(e) {
+async function handleFormSubmit(e) {
     e.preventDefault();
     e.stopPropagation();
 
     const messageInput = document.getElementById('message-input');
     const message = messageInput.value.trim();
+    const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
 
     if (!message) return;
 
-    (async () => {
-        try {
-            const encrypted = await encryptMessage(message);
-            console.log('Message encrypted:', encrypted);
-            document.getElementById('encrypted-message').value = encrypted;
+    if (displayName.length + message.length > 1000) {
+        alert('Combined name and message too long (max 1000 characters)');
+        return;
+    }
 
-            const formData = new FormData();
-            formData.append('encrypted_message', encrypted);
-            const response = await fetch(window.location.href, {
-                method: 'POST',
-                body: formData
-            });
+    try {
+        const encrypted = await encryptMessage(message);
+        console.log('Sending encrypted message:', encrypted);
+        document.getElementById('encrypted-message').value = encrypted;
 
-            if (!response.ok) {
-                console.error('Message send failed:', response.status, response.statusText);
-                throw new Error('Failed to send message: HTTP ' + response.status);
-            }
+        const formData = new FormData();
+        formData.append('encrypted_message', encrypted);
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            body: formData
+        });
+        const responseText = await response.text();
+        console.log('Server response:', responseText);
 
-            const data = await response.json();
-            if (!data.success) {
-                console.error('Server rejected message:', data);
-                throw new Error('Server rejected message: ' + (data.error || 'Unknown error'));
-            }
-
-            messageInput.value = '';
-            document.getElementById('encrypted-message').value = '';
-
-            setTimeout(fetchMessages, 500);
-        } catch (error) {
-            console.error("Error sending message:", error.message || error);
-            alert("Failed to send message: " + (error.message || "Unknown error") + ". Please try again.");
+        if (!response.ok) {
+            console.error('Message send failed:', response.status, response.statusText);
+            throw new Error('Failed to send message: HTTP ' + response.status);
         }
-    })();
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (error) {
+            console.error('Failed to parse server response:', responseText);
+            throw new Error('Invalid server response format');
+        }
+
+        if (!data.success) {
+            console.error('Server rejected message:', data.error);
+            throw new Error('Server rejected message: ' + (data.error || 'Unknown error'));
+        }
+
+        const chatBox = document.getElementById('chat-box');
+        if (!chatBox) {
+            console.error('Chat box element not found during message rendering');
+            throw new Error('Chat box not found');
+        }
+        const timestamp = Math.floor(Date.now() / 1000);
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message';
+        msgDiv.innerHTML = `
+            <span class="message-name">${displayName}</span>
+            <span class="message-text">${message}</span>
+        `;
+        msgDiv.dataset.enc = encrypted;
+        const expirationTime = (timestamp + 300) * 1000;
+        messageExpirationTimes.set(encrypted, expirationTime);
+        chatBox.appendChild(msgDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        messageInput.value = '';
+        document.getElementById('encrypted-message').value = '';
+        console.log('Message sent and rendered successfully:', { name: displayName, message, timestamp });
+    } catch (error) {
+        console.error('Error sending message:', error.message || error);
+        alert('Failed to send message: ' + (error.message || 'Unknown error') + '. Please try again.');
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -509,7 +540,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // Added event listeners for clear-btn and go-private-btn, moved from silver.php inline onclick
     const clearBtn = document.getElementById('clear-btn');
     if (clearBtn) {
         clearBtn.addEventListener('click', clearChat);
@@ -526,7 +556,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("Go Private button not found");
     }
 
-    // Added event listeners for consent buttons, moved from silver.php inline onclick
     const acceptConsentBtn = document.getElementById('accept-consent');
     if (acceptConsentBtn) {
         acceptConsentBtn.addEventListener('click', acceptConsent);
@@ -552,4 +581,4 @@ document.addEventListener('DOMContentLoaded', () => {
             if (loadingIndicator) loadingIndicator.textContent = "Error loading chat. Please refresh.";
         }
     })();
-}); 
+});
