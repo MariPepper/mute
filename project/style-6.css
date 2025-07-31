@@ -23,6 +23,8 @@ body {
     overflow: hidden;
     box-shadow: var(--shadow);
     max-width: 600px;
+    margin: 0 auto;
+    box-sizing: border-box;
 }
 
 .header {
@@ -39,113 +41,189 @@ body {
     padding: 20px;
 }
 
-.chat-form {
+/* LANDING PAGE SPECIFIC STYLES - Namespace: .landing-page */
+.landing-page .lp-form-stack {
     display: flex;
     flex-direction: column;
+    gap: 20px;
+    max-width: 400px;
     margin: 0 auto;
 }
 
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+.landing-page .lp-form-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
 }
 
-.form-group input {
-    padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    height: 50px;
-    text-align: left;
+.landing-page .lp-form-card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
 }
 
-.chat-box {
-    height: 300px;
-    background: var(--secondary-color);
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 10px;
-    overflow-y: auto;
+.landing-page #name-entry {
+    display: block;
+}
+
+.landing-page #name-entry .lp-name-label {
+    display: block;
+    font-size: 1em;
+    margin-bottom: 10px;
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.landing-page #name-entry .lp-name-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 1em;
     margin-bottom: 15px;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
 }
 
-.message {
-    margin: 5px 0;
-    padding: 8px;
-    background: white;
-    border-radius: 4px;
-    word-wrap: break-word;
+.landing-page #name-entry .lp-name-input:focus {
+    outline: none;
+    border-color: #87CEEB;
+    box-shadow: 0 0 0 3px rgba(135, 206, 235, 0.1);
 }
 
-.submit-btn {
+.landing-page .lp-submit-name-btn {
+    display: inline-block;
     background: var(--primary-color);
     color: white;
-    padding: 10px;
+    padding: clamp(6px, 1.5vw, 10px) clamp(10px, 3vw, 16px);
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
-    transition: background 0.3s ease;
+    font-size: clamp(0.8rem, 2vw, 1rem);
+    font-weight: 500;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    width: auto;
+    min-width: fit-content;
+    box-sizing: border-box;
 }
 
-.submit-btn:hover {
+.landing-page .lp-submit-name-btn:hover {
     background: #4a4a4a;
+    transform: translateY(-1px);
 }
 
-.clear-btn {
-    background: #dc3545;
-    color: white;
-    padding: 10px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.3s ease;
+.landing-page #room-selection {
+    display: none;
+    text-align: center;
 }
 
-.open-btn {
-    background-color: #87CEEB; 
-    color: white; 
-    border: none; 
-    padding: 10px; 
-    border-radius: 4px; 
-    cursor: pointer; 
-    transition: background 0.3s ease;
-  }
-
-  .open-btn:hover {
-    background-color: #6495ED; 
-  }
-
-.clear-btn:hover {
-    background: #bb2d3b;
+.landing-page #room-selection .lp-room-title {
+    font-size: 1.1em;
+    margin-bottom: 20px;
+    color: var(--primary-color);
+    font-weight: 600;
 }
 
-.reset-btn {
-    background-color: #dc3545; 
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    cursor: pointer;
-    border-radius: 4px;
-}
-.reset-btn:hover {
-    background-color: #c82333;
-}
-
-.button-group {
-    margin-top: 10px;
+.landing-page .lp-room-buttons {
     display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 2vw, 12px);
+    width: 100%;
+    align-items: center;
+}
+
+.landing-page .lp-room-btn {
+    background: #87CEEB;
+    color: white;
+    padding: clamp(6px, 1.5vw, 10px) clamp(10px, 3vw, 16px);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: clamp(0.8rem, 2vw, 1rem);
+    font-weight: 500;
+    white-space: nowrap;
+    width: auto;
+    min-width: fit-content;
+    box-sizing: border-box;
+    display: inline-block;
+}
+
+.landing-page .lp-room-btn:hover {
+    background: #6495ED;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(100, 149, 237, 0.3);
+}
+
+/* Progress indicator */
+.landing-page .lp-progress-dots {
+    display: flex;
+    justify-content: center;
     gap: 10px;
+    margin-bottom: 20px;
 }
 
-sup {
-    font-size: xx-small; /* Sets the font size to xx-small */
+.landing-page .lp-progress-dot {
+    width: clamp(6px, 1.5vw, 10px);
+    height: clamp(6px, 1.5vw, 10px);
+    border-radius: 50%;
+    background: #ddd;
+    transition: background 0.3s ease;
 }
 
-#key-entry {
-    display: block;
-    margin-bottom: 10px;
+.landing-page .lp-progress-dot.active {
+    background: #87CEEB;
 }
 
+.landing-page .lp-progress-dot.completed {
+    background: var(--primary-color);
+}
+
+/* Responsive breakpoints for landing page */
+@media (min-width: 480px) {
+    .landing-page .lp-room-buttons {
+        flex-direction: row;
+        gap: clamp(10px, 3vw, 15px);
+        justify-content: center;
+    }
+}
+
+/* For very small screens - make everything smaller */
+@media (max-width: 320px) {
+    .landing-page .lp-room-btn,
+    .landing-page .lp-submit-name-btn {
+        font-size: 0.75rem;
+        padding: 5px 8px;
+    }
+    
+    .landing-page .lp-progress-dot {
+        width: 6px;
+        height: 6px;
+    }
+}
+
+@media (max-width: 640px) {
+    .container {
+        margin: 10px;
+        width: calc(100% - 20px);
+        border-radius: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+    
+    .content {
+        padding: 15px;
+    }
+}
+
+/* Original consent box styling - unchanged */
 #consent-box {
     display: none;
     position: fixed;
@@ -160,4 +238,8 @@ sup {
 
 .consent-link {
     margin-left: 10px;
+}
+
+sup {
+    font-size: xx-small;
 }
