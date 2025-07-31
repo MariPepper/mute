@@ -49,50 +49,59 @@ async function deriveKey(chatKey) {
         const keyArray = new Uint8Array(keyHash);
         const privateKeySeed = BigInt('0x' + Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join(''));
 
-        // Step 2: Generate private key (combine key seed with randomness)
+        // Step 2: Generate private key
         const randomArray = new Uint8Array(32);
         crypto.getRandomValues(randomArray);
         const randomSeed = BigInt('0x' + Array.from(randomArray).map(b => b.toString(16).padStart(2, '0')).join(''));
-        const privateKey = (privateKeySeed + randomSeed) % (BigInt('2') ** BigInt(256));
+        const passwordHash = Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
 
         // Step 3: Fetch DH parameters
-        const passwordHash = Array.from(new Uint8Array(keyHash)).map(b => b.toString(16).padStart(2, '0')).join('');
         const response = await fetch('/api/exchange-dh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ passwordHash, publicKey: null })
         });
+        if (!response.ok) throw new Error('Failed to fetch DH parameters');
         const { modulusHex, base, publicKeys } = await response.json();
         const modulus = BigInt('0x' + modulusHex);
         const g = BigInt(base);
+        const privateKey = (privateKeySeed + randomSeed) % (modulus - 1n); // Use modulus - 1
 
         // Step 4: Compute public key: g^privateKey mod p
         let publicKey = 1n;
         let baseTemp = g % modulus;
-        let exp = privateKey % (modulus - 1n);
+        let exp = privateKey;
         while (exp > 0n) {
             if (exp % 2n === 1n) publicKey = (publicKey * baseTemp) % modulus;
             exp = exp >> 1n;
             baseTemp = (baseTemp * baseTemp) % modulus;
         }
 
-        // Step 5: Send public key and get other users' public keys
-        const exchangeResponse = await fetch('/api/exchange-dh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
-        });
-        const { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
+        // Step 5: Send public key and poll for other users' public keys
+        let otherPublicKeys = publicKeys;
+        let attempts = 0;
+        const maxAttempts = 30; // Poll for ~60 seconds (2s per attempt)
+        while (otherPublicKeys.length === 0 && attempts < maxAttempts) {
+            const exchangeResponse = await fetch('/api/exchange-dh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
+            });
+            if (!exchangeResponse.ok) throw new Error('Failed to exchange public key');
+            const { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
+            otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
+            if (otherPublicKeys.length === 0) {
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s
+                attempts++;
+            }
+        }
+        if (otherPublicKeys.length === 0) throw new Error('No other users joined in time');
 
         // Step 6: Compute shared secret
-        const otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
-        if (otherPublicKeys.length === 0) {
-            throw new Error('No other users with matching chat key yet');
-        }
         const otherPublicKey = BigInt(otherPublicKeys[0]);
         let sharedSecret = 1n;
         baseTemp = otherPublicKey % modulus;
-        exp = privateKey % (modulus - 1n);
+        exp = privateKey;
         while (exp > 0n) {
             if (exp % 2n === 1n) sharedSecret = (sharedSecret * baseTemp) % modulus;
             exp = exp >> 1n;
@@ -110,7 +119,6 @@ async function deriveKey(chatKey) {
         );
     } catch (e) {
         console.error('Key exchange error:', e);
-        // Fallback to current derivation
         const salt = await getSaltForKey(chatKey);
         const keyMaterial = await crypto.subtle.importKey(
             'raw', encoder.encode(chatKey), 'PBKDF2', false, ['deriveBits', 'deriveKey']
