@@ -2,7 +2,7 @@
 // Generate a random nonce for CSP
 $nonce = base64_encode(random_bytes(16));
 
-// Add server-side security headers to replace meta tags
+// Add server-side security headers
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('X-XSS-Protection: 1; mode=block');
@@ -34,6 +34,7 @@ function cleanSessionKeyFile($file)
         file_put_contents($file, encryptJson($data), LOCK_EX);
         chmod($file, 0600);
         $performedCleanup = true;
+        error_log("Performed cleanup on $file at " . date('Y-m-d H:i:s'));
     }
 
     return $performedCleanup;
@@ -82,6 +83,7 @@ function loadKey($file)
         'last_rotation' => $data['last_rotation'] ?? $currentTime
     ]), LOCK_EX);
     chmod($file, 0600);
+    error_log("Loaded key for window $currentWindow from $file");
     return $realKey;
 }
 
@@ -89,37 +91,30 @@ function generateRealKey($offset)
 {
     try {
         $timeWindow = floor((time() - $offset) / 300);
-
-        // Use openssl_random_pseudo_bytes for a secure 32-byte exponent
         $xBytes = openssl_random_pseudo_bytes(32);
         $x = gmp_init(bin2hex($xBytes), 16);
         error_log("Generated x: " . gmp_strval($x));
 
-        // Use a hardcoded 2048-bit safe prime modulus 
         $modulusHex = 'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA237327FFFFFFFFFFFFFFFF';
         $modulus = gmp_init($modulusHex, 16);
         error_log("Using hardcoded modulus: " . gmp_strval($modulus));
 
-        // Base for exponentiation
         $base = gmp_init(2, 10);
         error_log("Using base: " . gmp_strval($base));
 
-        // Modular exponentiation with GMP
         $maxExp = gmp_sub($modulus, gmp_init(1));
-        $exp = gmp_mod($x, $maxExp); // Ensure exponent < modulus-1
+        $exp = gmp_mod($x, $maxExp);
         error_log("Using exponent: " . gmp_strval($exp));
 
         $result = gmp_powm($base, $exp, $modulus);
         error_log("Result: " . gmp_strval($result));
 
-        // Timing delays for side-channel mitigation
         for ($i = 0; $i < 10; $i++) {
             if (mt_rand(0, 9) === 0) {
-                usleep(mt_rand(100, 1000)); // 0.1-1ms delay
+                usleep(mt_rand(100, 1000));
             }
         }
 
-        // Hash with time window for rotation compatibility
         $randomNum = gmp_strval($result);
         $key = base64_encode(hash('sha256', $timeWindow . $randomNum, true));
         error_log("Generated key for window $timeWindow: $key");
@@ -140,12 +135,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $data = decryptJson(file_get_contents($keyFile));
         $allKeys = array_column($data['keys'], 'key');
         echo json_encode(['key' => base64_encode($key), 'all_keys' => $allKeys]);
+        error_log("Sent key response: " . json_encode(['key' => base64_encode($key)]));
         exit;
     }
 
     if ($_POST['action'] === 'check_cleanup') {
         $performedCleanup = cleanSessionKeyFile($keyFile);
         echo json_encode(['cleanupPerformed' => $performedCleanup]);
+        error_log("Cleanup check response: " . json_encode(['cleanupPerformed' => $performedCleanup]));
         exit;
     }
 
@@ -156,6 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $oneDay = 24 * 60 * 60;
         $needsRotation = ($currentTime - $lastRotation) >= $oneDay;
         echo json_encode(['needsRotation' => $needsRotation]);
+        error_log("Rotation check response: " . json_encode(['needsRotation' => $needsRotation]));
         exit;
     }
 }
@@ -185,7 +183,11 @@ function loadMessages($file)
                     'timestamp' => $msg['timestamp']
                 ];
             }, $messages);
+        } else {
+            error_log("Failed to load or parse messages from $file");
         }
+    } else {
+        error_log("Chat file $file does not exist");
     }
     return [];
 }
@@ -199,7 +201,7 @@ function saveMessages($file, $messages, $timestamp)
         ];
     }, $messages);
 
-    $messagesForStorage = array_slice($messagesForStorage, -200); // overhead set as per number of users (25 users)
+    $messagesForStorage = array_slice($messagesForStorage, -200);
     $data = [
         'messages' => $messagesForStorage,
         'last_activity' => $timestamp
@@ -217,6 +219,7 @@ function saveMessages($file, $messages, $timestamp)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['encrypted_message'])) {
     header('Content-Type: application/json');
     $encrypted_message = trim($_POST['encrypted_message']);
+    error_log("Received encrypted message: '$encrypted_message'");
 
     if (empty($encrypted_message)) {
         error_log("Empty encrypted message received");
@@ -226,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['encrypted_message']))
 
     try {
         $data = file_exists($chatFile) ? json_decode(file_get_contents($chatFile), true) : ['messages' => []];
-        if (!$data) {
+        if ($data === null) {
             error_log("Failed to decode JSON from $chatFile");
             echo json_encode(['success' => false, 'error' => 'Failed to load chat data']);
             exit;
@@ -253,18 +256,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['encrypted_message']))
             }
         });
 
-        $messages = array_slice($messages, -200); // overhead set as per number of users (25 users)
-        $data = [
-            'messages' => $messages,
-            'last_activity' => $currentTime
-        ];
-
+        $messages = array_slice($messages, -200);
         if (!saveMessages($chatFile, $messages, $currentTime)) {
             error_log("Failed to save messages to $chatFile in POST handler");
             echo json_encode(['success' => false, 'error' => 'Failed to save message']);
             exit;
         }
 
+        error_log("Message saved successfully: '$encrypted_message'");
         echo json_encode(['success' => true]);
     } catch (Exception $e) {
         error_log("Error in POST handler: " . $e->getMessage());
@@ -282,7 +281,7 @@ $messages = loadMessages($chatFile);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multi-User Encrypted Timed Chat</title>
-    <link rel="stylesheet" type="text/css" href="style-6.css">
+    <link rel="stylesheet" type="text/css" href="style-7.css">
 </head>
 
 <body>
@@ -313,12 +312,9 @@ $messages = loadMessages($chatFile);
             </div>
         </div>
     </div>
-    <!-- Pass PHP data to JavaScript -->
     <script nonce="<?php echo $nonce; ?>">
         const initialMessages = <?php echo json_encode($messages); ?>;
     </script>
-
-    <!-- Load external JavaScript file -->
     <script src="silver.js"></script>
 </body>
 
