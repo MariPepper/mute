@@ -10,46 +10,15 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Strict-Transport-Security: max-age=31536000;');
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self';");
 
-require_once 'encrypt_json.php'; // For encryptJson and decryptJson
-
 // Force HTTPS
 if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
     header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
     exit();
 }
 
+require_once 'encrypt_json.php';
+
 $chatFile = 'temp_talk_gold.json';
-$saltFile = '../private/salt_key_mapping.json'; // File to store salt-key mappings
-
-// Security logging function
-function secureLog($message, $level = 'INFO')
-{
-    $logFile = '../private/chat_security.log';
-    $timestamp = date('Y-m-d H:i:s');
-    $entry = "[$timestamp] [$level] $message" . PHP_EOL;
-    file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
-}
-
-// Input validation function
-function validateEncryptedMessage($message)
-{
-    if (!preg_match('/^[A-Za-z0-9+\/=]+:[A-Za-z0-9+\/=]+:[0-9]+$/', $message)) {
-        return false;
-    }
-
-    if (strlen($message) > 10000) {
-        return false;
-    }
-
-    $parts = explode(':', $message);
-    $timestamp = intval($parts[2]);
-    $currentTime = time() * 1000;
-    if ($timestamp < ($currentTime - 3600000) || $timestamp > ($currentTime + 300000)) {
-        return false;
-    }
-
-    return true;
-}
 
 function loadMessages($file)
 {
@@ -57,22 +26,16 @@ function loadMessages($file)
         $data = json_decode(file_get_contents($file), true);
         if ($data && isset($data['messages'])) {
             $currentTime = time();
-            if (!isset($data['last_cleanup']) || ($currentTime - $data['last_cleanup']) > 60) {
-                $validMessages = array_filter($data['messages'], function ($message) use ($currentTime) {
-                    if (is_string($message)) {
-                        return true; // Keep legacy messages for migration
-                    }
-                    return isset($message['timestamp']) && ($currentTime - $message['timestamp']) < 300; // 5 minutes
-                });
-                $validMessages = array_values($validMessages);
-                if (count($validMessages) !== count($data['messages'])) {
-                    $expiredCount = count($data['messages']) - count($validMessages);
-                    secureLog("Cleaned $expiredCount expired messages");
-                    saveMessages($file, $validMessages, $currentTime);
+            $messages = array_filter($data['messages'], function ($msg) use ($currentTime) {
+                if (!isset($msg['timestamp'])) {
+                    error_log("Message missing timestamp in loadMessages: " . json_encode($msg));
+                    return false;
                 }
-                return $validMessages;
-            }
-            return $data['messages'];
+                return ($currentTime - $msg['timestamp']) < 300;
+            });
+            return array_map(function ($msg) {
+                return $msg['content'];
+            }, $messages);
         }
     }
     return [];
@@ -80,78 +43,95 @@ function loadMessages($file)
 
 function saveMessages($file, $messages, $timestamp)
 {
-    $data = ['messages' => $messages, 'last_activity' => $timestamp, 'last_cleanup' => $timestamp];
-    file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
-    chmod($file, 0600);
-}
+    $messagesForStorage = array_map(function ($msg) {
+        return [
+            'content' => $msg['content'],
+            'timestamp' => $msg['timestamp']
+        ];
+    }, $messages);
 
-// Function to manage salt-key mapping
-function getSaltForKey($key, $saltFile)
-{
-    $keyHash = hash('sha256', $key);
-    $data = file_exists($saltFile) ? decryptJson(file_get_contents($saltFile)) : [];
-    if (!isset($data[$keyHash])) {
-        $salt = base64_encode(random_bytes(16)); // 16-byte random salt
-        $data[$keyHash] = $salt;
-        file_put_contents($saltFile, encryptJson($data), LOCK_EX);
-        chmod($saltFile, 0600);
-        secureLog("New salt generated for key hash: $keyHash");
+    $messagesForStorage = array_slice($messagesForStorage, -200);
+    $data = [
+        'messages' => $messagesForStorage,
+        'last_activity' => $timestamp
+    ];
+
+    if (!file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX)) {
+        error_log("Failed to write messages to $file");
+        return false;
     }
-    return base64_decode($data[$keyHash]);
+    chmod($file, 0600);
+    error_log("Saved messages: " . count($messagesForStorage) . " at " . date('Y-m-d H:i:s', $timestamp));
+    return true;
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['encrypted_message'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['encrypted_message'])) {
+    header('Content-Type: application/json');
     $encrypted_message = trim($_POST['encrypted_message']);
 
     if (empty($encrypted_message)) {
-        secureLog("Empty message submitted", 'WARNING');
-        http_response_code(400);
-        exit('Empty message');
+        error_log("Empty encrypted message received");
+        echo json_encode(['success' => false, 'error' => 'Empty message']);
+        exit;
     }
 
-    if (!validateEncryptedMessage($encrypted_message)) {
-        secureLog("Invalid message format submitted", 'WARNING');
-        http_response_code(400);
-        exit('Invalid message format');
+    try {
+        $data = file_exists($chatFile) ? json_decode(file_get_contents($chatFile), true) : ['messages' => []];
+        if (!$data) {
+            error_log("Failed to decode JSON from $chatFile");
+            echo json_encode(['success' => false, 'error' => 'Failed to load chat data']);
+            exit;
+        }
+
+        $messages = $data['messages'] ?? [];
+        $currentTime = time();
+        $messages[] = [
+            'content' => $encrypted_message,
+            'timestamp' => $currentTime
+        ];
+
+        $messages = array_filter($messages, function ($msg) use ($currentTime) {
+            if (!isset($msg['timestamp'])) {
+                error_log("Message missing timestamp in POST handler: " . json_encode($msg));
+                return false;
+            }
+            return ($currentTime - $msg['timestamp']) < 300;
+        });
+
+        $messages = array_slice($messages, -200);
+        if (!saveMessages($chatFile, $messages, $currentTime)) {
+            error_log("Failed to save messages to $chatFile in POST handler");
+            echo json_encode(['success' => false, 'error' => 'Failed to save message']);
+            exit;
+        }
+
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        error_log("Error in POST handler: " . $e->getMessage());
+        echo json_encode(['success' => false, 'error' => 'Server error: ' . $e->getMessage()]);
     }
-
-    $messages = loadMessages($chatFile);
-    $messageObj = [
-        'content' => $encrypted_message,
-        'timestamp' => time(),
-    ];
-    $messages[] = $messageObj;
-    saveMessages($chatFile, $messages, time());
-
-    secureLog("Message posted successfully");
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit();
+    exit;
 }
 
 $messages = loadMessages($chatFile);
-$messageContents = array_map(function ($msg) {
-    return is_array($msg) ? $msg['content'] : $msg;
-}, $messages);
-echo "<script>const serverMessages = " . json_encode($messageContents) . "; const serverTime = " . time() . ";</script>";
+$serverTime = time();
 ?>
 <!DOCTYPE html>
 <html lang="en-US">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-User Encrypted Timed Chat</title>
-    <link rel="stylesheet" type="text/css" href="style-6.css">
+    <title>Private Encrypted Timed Chat</title>
+    <link rel="stylesheet" type="text/css" href="style-7.css">
 </head>
-
 <body>
-   <div class="container">
+    <div class="container">
         <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
         <div class="content">
             <div id="key-entry">
-                <label for="chat-key-input">Enter the chat key (shared offline):</label>
-                <input type="password" id="chat-key-input" minlength="16" required>
-                <button type="button" id="submit-key-btn">Submit Key</button>
+                <label for="chat-key-input">Enter Chat Key (min 16 characters):</label>
+                <input type="password" id="chat-key-input" required>
+                <button type="button" id="submit-key-btn">Enter Chat</button>
             </div>
             <div class="chat-box" id="chat-box"></div>
             <form method="POST" action="" class="chat-form" id="chat-form">
@@ -176,15 +156,10 @@ echo "<script>const serverMessages = " . json_encode($messageContents) . "; cons
             </div>
         </div>
     </div>
-
-    <!-- Pass PHP data to JavaScript -->
     <script nonce="<?php echo $nonce; ?>">
-        const serverMessages = <?php echo json_encode($messageContents); ?>;
-        const serverTime = <?php echo time(); ?>;
+        const serverMessages = <?php echo json_encode($messages); ?>;
+        const serverTime = <?php echo $serverTime; ?>;
     </script>
-
-    <!-- Load external JavaScript file -->
     <script src="gold.js"></script>
 </body>
-
 </html>
