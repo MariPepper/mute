@@ -10,7 +10,6 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Strict-Transport-Security: max-age=31536000;');
 header("Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-$nonce'; style-src 'self';");
 
-// Force HTTPS
 if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
     header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
     exit();
@@ -20,8 +19,7 @@ require_once 'encrypt_json.php';
 
 $chatFile = 'temp_talk_gold.json';
 
-function loadMessages($file)
-{
+function loadMessages($file) {
     if (file_exists($file)) {
         $data = json_decode(file_get_contents($file), true);
         if ($data && isset($data['messages'])) {
@@ -41,8 +39,7 @@ function loadMessages($file)
     return [];
 }
 
-function saveMessages($file, $messages, $timestamp)
-{
+function saveMessages($file, $messages, $timestamp) {
     $messagesForStorage = array_map(function ($msg) {
         return [
             'content' => $msg['content'],
@@ -159,6 +156,16 @@ $serverTime = time();
     <script nonce="<?php echo $nonce; ?>">
         const serverMessages = <?php echo json_encode($messages); ?>;
         const serverTime = <?php echo $serverTime; ?>;
+        document.getElementById('submit-key-btn').addEventListener('click', async () => {
+            const chatKey = document.getElementById('chat-key-input').value;
+            if (chatKey.length < 16) {
+                alert('Chat key must be at least 16 characters');
+                return;
+            }
+            window.muteChat = window.muteChat || {};
+            window.muteChat.deriveKey = async () => await deriveKey(chatKey);
+            window.muteChat.initChat(); // Assume initChat handles chat initialization
+        });
     </script>
     <script src="gold.js"></script>
 </body>
