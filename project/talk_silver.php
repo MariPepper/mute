@@ -302,14 +302,15 @@ $messages = loadMessages($chatFile);
                     <button type="button" class="clear-btn" id="clear-btn">Clear</button>
                     <button type="button" class="open-btn" id="go-private-btn">Go Private</button>
                 </div>
-                <div id="consent-box">
-                    <p>We use local and session storage for essential chat functionality.</p>
-                    <button id="accept-consent">Accept</button>
-                    <button id="reject-consent">Reject</button>
-                    <span class="consent-link">
-                        <a href="cookie_policy.html">Cookie Policy</a>
-                    </span>
-                </div>
+            </form>
+            <div id="consent-box">
+                <p>We use local and session storage for essential chat functionality.</p>
+                <button id="accept-consent">Accept</button>
+                <button id="reject-consent">Reject</button>
+                <span class="consent-link">
+                    <a href="cookie_policy.html">Cookie Policy</a>
+                </span>
+            </div>
         </div>
     </div>
     <!-- Pass PHP data to JavaScript -->
