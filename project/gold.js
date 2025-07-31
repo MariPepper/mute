@@ -1,9 +1,7 @@
-// Security: Clear sensitive data on page unload
 let SHARED_KEY = null;
 let derivedKey = null;
 let lastActivity = Date.now();
 
-// Consent functions
 function acceptConsent() {
     sessionStorage.setItem('cookieConsent', 'true');
     document.getElementById('consent-box').style.display = 'none';
@@ -15,12 +13,10 @@ function rejectConsent() {
     window.location.href = "about:blank";
 }
 
-// Check consent on load
 if (!sessionStorage.getItem('cookieConsent')) {
     document.getElementById('consent-box').style.display = 'block';
 }
 
-// Function to fetch salt from server
 async function getSaltForKey(key) {
     const keyHash = await hashKey(key);
     const response = await fetch('get_salt.php', {
@@ -44,7 +40,6 @@ async function hashKey(key) {
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Fixed key derivation with salt per key from server
 async function deriveKey(password) {
     try {
         const salt = await getSaltForKey(password);
@@ -55,7 +50,6 @@ async function deriveKey(password) {
             false,
             ['deriveBits', 'deriveKey']
         );
-        
         return crypto.subtle.deriveKey(
             {
                 name: 'PBKDF2',
@@ -96,7 +90,6 @@ async function submitKey() {
     }
 }
 
-// Initialize from session storage
 async function initializeFromStorage() {
     SHARED_KEY = sessionStorage.getItem('chatKey');
     if (SHARED_KEY) {
@@ -122,25 +115,31 @@ function resetChatKey() {
     location.reload();
 }
 
-// Input sanitization
 function sanitizeInput(input) {
     return input.replace(/[<>\"'&]/g, '').trim();
 }
 
-// Enhanced encryption with timestamp and integrity
 async function encryptMessage(text) {
     try {
         if (!derivedKey) throw new Error("Key not derived");
         
-        const timestamp = Date.now().toString();
-        const payload = JSON.stringify({ message: text, timestamp: parseInt(timestamp) });
+        const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
+        const timestamp = Date.now();
+        if (Math.abs(timestamp - Date.now()) > 300000) {
+            throw new Error("Client clock is too far off; please sync time");
+        }
+        const payload = JSON.stringify({ 
+            name: displayName, 
+            message: text, 
+            timestamp: timestamp 
+        });
         const iv = crypto.getRandomValues(new Uint8Array(12));
         
         const encrypted = await crypto.subtle.encrypt(
             { 
                 name: 'AES-GCM', 
                 iv: iv,
-                additionalData: new TextEncoder().encode(timestamp)
+                additionalData: new TextEncoder().encode(timestamp.toString())
             },
             derivedKey,
             new TextEncoder().encode(payload)
@@ -175,7 +174,7 @@ async function decryptMessage(encryptedStr) {
         );
         
         const payload = JSON.parse(new TextDecoder().decode(decrypted));
-        return payload.message;
+        return { name: payload.name || 'Anonymous', message: payload.message };
     } catch (error) {
         console.error("Decryption error:", error);
         return null;
@@ -183,18 +182,19 @@ async function decryptMessage(encryptedStr) {
 }
 
 let localMessages = JSON.parse(sessionStorage.getItem('chatMessages')) || [];
-const chatBox = document.getElementById('chat-box');
-const chatForm = document.getElementById('chat-form');
-const msgInput = document.getElementById('message-input');
 
 function displayMessages(messages, referenceTime) {
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) {
+        console.error("Chat box element not found");
+        return;
+    }
     chatBox.innerHTML = '';
     const currentTime = referenceTime || Date.now();
     const validMessages = messages.filter(msgObj => {
-        if (typeof msgObj === 'string') return true; // Keep legacy messages
+        if (typeof msgObj === 'string') return true;
         const messageAge = currentTime - msgObj.timestamp;
-        const isExpired = messageAge > 300000; // 5 minutes
-        return !isExpired;
+        return messageAge <= 300000;
     });
 
     if (validMessages.length !== messages.length) {
@@ -205,8 +205,18 @@ function displayMessages(messages, referenceTime) {
     validMessages.forEach(msgObj => {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message';
-        const messageText = typeof msgObj === 'string' ? msgObj : msgObj.content;
-        messageDiv.innerHTML = `<span class="message-text">${escapeHtml(messageText)}</span>`;
+        let name, content;
+        if (typeof msgObj === 'string') {
+            name = 'Anonymous';
+            content = msgObj;
+        } else {
+            name = msgObj.name || 'Anonymous';
+            content = msgObj.content;
+        }
+        messageDiv.innerHTML = `
+            <span class="message-name">${escapeHtml(name)}</span>
+            <span class="message-text">${escapeHtml(content)}</span>
+        `;
         chatBox.appendChild(messageDiv);
     });
     chatBox.scrollTop = chatBox.scrollHeight;
@@ -225,6 +235,12 @@ function saveLocalMessages(messages) {
 async function fetchMessages() {
     if (!derivedKey) return;
     
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) {
+        console.error("Chat box element not found in fetchMessages");
+        return;
+    }
+
     try {
         const response = await fetch('fetch_messages_gold.php');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -238,7 +254,7 @@ async function fetchMessages() {
                 if (decrypted !== null) {
                     const timestamp = typeof msg === 'object' && msg.timestamp ?
                         msg.timestamp * 1000 : serverTimeMs - (index * 1000);
-                    return { content: decrypted, timestamp };
+                    return { name: decrypted.name, content: decrypted.message, timestamp };
                 }
                 return null;
             })
@@ -257,6 +273,12 @@ async function fetchMessages() {
 }
 
 async function initializeChat() {
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) {
+        console.error("Chat box element not found in initializeChat");
+        return;
+    }
+
     try {
         if (typeof serverMessages !== 'undefined' && serverMessages.length > 0) {
             const decryptedServerMessages = await Promise.all(
@@ -264,7 +286,8 @@ async function initializeChat() {
                     const decrypted = await decryptMessage(enc);
                     if (decrypted !== null) {
                         return {
-                            content: decrypted,
+                            name: decrypted.name,
+                            content: decrypted.message,
                             timestamp: serverTime * 1000 - (index * 1000)
                         };
                     }
@@ -276,10 +299,7 @@ async function initializeChat() {
             displayMessages(localMessages, serverTime * 1000);
         }
         
-        // Start periodic updates
         setInterval(fetchMessages, 2000);
-        
-        // Periodic cleanup
         setInterval(() => {
             displayMessages(localMessages);
         }, 60000);
@@ -290,34 +310,35 @@ async function initializeChat() {
 }
 
 function clearChat() {
-    msgInput.value = '';
+    const msgInput = document.getElementById('message-input');
+    if (msgInput) msgInput.value = '';
 }
 
 async function handleFormSubmit(e) {
     e.preventDefault();
+    const chatBox = document.getElementById('chat-box');
+    if (!chatBox) {
+        console.error("Chat box element not found in handleFormSubmit");
+        alert("Chat box not found. Please refresh the page.");
+        return;
+    }
     if (!derivedKey) {
         alert("Encryption key not ready. Please wait or reset the key.");
         return;
     }
     
+    const msgInput = document.getElementById('message-input');
     let message = sanitizeInput(msgInput.value);
+    const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
     if (message && message.length > 0) {
-        // Client-side length validation
-        if (message.length > 1000) {
-            alert('Message too long (max 1000 characters)');
+        if (displayName.length + message.length > 1000) {
+            alert('Combined name and message too long (max 1000 characters)');
             return;
         }
-        
         try {
             const encrypted = await encryptMessage(message);
-            const timestamp = Date.now();
+            const timestamp = parseInt(encrypted.split(':')[2]);
             
-            // Add to local messages immediately for responsiveness
-            localMessages.push({ content: message, timestamp });
-            displayMessages(localMessages);
-            saveLocalMessages(localMessages);
-            
-            // Send to server
             const formData = new FormData();
             formData.append('encrypted_message', encrypted);
             
@@ -330,35 +351,35 @@ async function handleFormSubmit(e) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            msgInput.value = '';
-            lastActivity = Date.now(); // Update activity timestamp
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(`Server rejected message: ${data.error || 'Unknown error'}`);
+            }
             
-        } catch (error) {
-            console.error("Error sending message:", error);
-            alert("Failed to send message. Please try again.");
-            // Remove the optimistically added message
-            localMessages.pop();
+            localMessages.push({ name: displayName, content: message, timestamp });
             displayMessages(localMessages);
             saveLocalMessages(localMessages);
+            
+            msgInput.value = '';
+            lastActivity = Date.now();
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("Failed to send message: " + error.message);
         }
     }
 }
 
-// Session timeout management
 setInterval(() => {
     console.log("Periodic timeout check at", new Date().toLocaleTimeString());
-    if (Date.now() - lastActivity > 30 * 60 * 1000) { // 30 minutes
+    if (Date.now() - lastActivity > 30 * 60 * 1000) {
         resetChatKey();
         alert('Session expired due to inactivity');
     }
 }, 60000);
 
-// Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
-    // Initialize from storage
     await initializeFromStorage();
     
-    // Event listeners
     document.getElementById('submit-key-btn').addEventListener('click', submitKey);
     document.getElementById('clear-btn').addEventListener('click', clearChat);
     document.getElementById('reset-key-btn').addEventListener('click', resetChatKey);
@@ -368,10 +389,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('accept-consent').addEventListener('click', acceptConsent);
     document.getElementById('reject-consent').addEventListener('click', rejectConsent);
     
-    chatForm.addEventListener('submit', handleFormSubmit);
-    
-    // Update activity on user interaction
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+        chatForm.addEventListener('submit', handleFormSubmit);
+    }
+
     document.addEventListener('click', () => lastActivity = Date.now());
     document.addEventListener('keypress', () => lastActivity = Date.now());
-    msgInput.addEventListener('input', () => lastActivity = Date.now());
+    const msgInput = document.getElementById('message-input');
+    if (msgInput) {
+        msgInput.addEventListener('input', () => lastActivity = Date.now());
+    }
 });
