@@ -40,31 +40,85 @@ async function hashKey(key) {
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function deriveKey(password) {
+async function deriveKey(chatKey) {
+    const encoder = new TextEncoder();
     try {
-        const salt = await getSaltForKey(password);
+        // Step 1: Derive a seed from the chat key using SHA-256
+        const keyData = encoder.encode(chatKey);
+        const keyHash = await crypto.subtle.digest('SHA-256', keyData);
+        const keyArray = new Uint8Array(keyHash);
+        const privateKeySeed = BigInt('0x' + Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join(''));
+
+        // Step 2: Generate private key (combine key seed with randomness)
+        const randomArray = new Uint8Array(32);
+        crypto.getRandomValues(randomArray);
+        const randomSeed = BigInt('0x' + Array.from(randomArray).map(b => b.toString(16).padStart(2, '0')).join(''));
+        const privateKey = (privateKeySeed + randomSeed) % (BigInt('2') ** BigInt(256));
+
+        // Step 3: Fetch DH parameters
+        const passwordHash = Array.from(new Uint8Array(keyHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        const response = await fetch('/api/exchange-dh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passwordHash, publicKey: null })
+        });
+        const { modulusHex, base, publicKeys } = await response.json();
+        const modulus = BigInt('0x' + modulusHex);
+        const g = BigInt(base);
+
+        // Step 4: Compute public key: g^privateKey mod p
+        let publicKey = 1n;
+        let baseTemp = g % modulus;
+        let exp = privateKey % (modulus - 1n);
+        while (exp > 0n) {
+            if (exp % 2n === 1n) publicKey = (publicKey * baseTemp) % modulus;
+            exp = exp >> 1n;
+            baseTemp = (baseTemp * baseTemp) % modulus;
+        }
+
+        // Step 5: Send public key and get other users' public keys
+        const exchangeResponse = await fetch('/api/exchange-dh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
+        });
+        const { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
+
+        // Step 6: Compute shared secret
+        const otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
+        if (otherPublicKeys.length === 0) {
+            throw new Error('No other users with matching chat key yet');
+        }
+        const otherPublicKey = BigInt(otherPublicKeys[0]);
+        let sharedSecret = 1n;
+        baseTemp = otherPublicKey % modulus;
+        exp = privateKey % (modulus - 1n);
+        while (exp > 0n) {
+            if (exp % 2n === 1n) sharedSecret = (sharedSecret * baseTemp) % modulus;
+            exp = exp >> 1n;
+            baseTemp = (baseTemp * baseTemp) % modulus;
+        }
+
+        // Step 7: Derive AES-GCM key using PBKDF2
+        const salt = await getSaltForKey(chatKey);
         const keyMaterial = await crypto.subtle.importKey(
-            'raw',
-            new TextEncoder().encode(password),
-            'PBKDF2',
-            false,
-            ['deriveBits', 'deriveKey']
+            'raw', encoder.encode(sharedSecret.toString()), 'PBKDF2', false, ['deriveBits', 'deriveKey']
         );
         return crypto.subtle.deriveKey(
-            {
-                name: 'PBKDF2',
-                salt: salt,
-                iterations: 100000,
-                hash: 'SHA-256'
-            },
-            keyMaterial,
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['encrypt', 'decrypt']
+            { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+            keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
         );
-    } catch (error) {
-        console.error("Key derivation error:", error);
-        throw error;
+    } catch (e) {
+        console.error('Key exchange error:', e);
+        // Fallback to current derivation
+        const salt = await getSaltForKey(chatKey);
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw', encoder.encode(chatKey), 'PBKDF2', false, ['deriveBits', 'deriveKey']
+        );
+        return crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+            keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
     }
 }
 
