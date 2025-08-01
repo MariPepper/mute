@@ -115,20 +115,22 @@ $serverTime = time();
 ?>
 <!DOCTYPE html>
 <html lang="en-US">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Private Encrypted Timed Chat</title>
+    <title>Multi-User Encrypted Timed Chat</title>
     <link rel="stylesheet" type="text/css" href="style-7.css">
 </head>
+
 <body>
     <div class="container">
         <div class="header">Multi-User Timed Encrypted Chat <sup>MUTE</sup></div>
         <div class="content">
             <div id="key-entry">
-                <label for="chat-key-input">Enter Chat Key (min 16 characters):</label>
-                <input type="password" id="chat-key-input" required>
-                <button type="button" id="submit-key-btn">Enter Chat</button>
+                <label for="chat-key-input">Enter the chat key (shared offline):</label>
+                <input type="password" id="chat-key-input" minlength="16" required>
+                <button type="button" id="submit-key-btn">Submit Key</button>
             </div>
             <div class="chat-box" id="chat-box"></div>
             <form method="POST" action="" class="chat-form" id="chat-form">
@@ -156,17 +158,12 @@ $serverTime = time();
     <script nonce="<?php echo $nonce; ?>">
         const serverMessages = <?php echo json_encode($messages); ?>;
         const serverTime = <?php echo $serverTime; ?>;
-        document.getElementById('submit-key-btn').addEventListener('click', async () => {
-            const chatKey = document.getElementById('chat-key-input').value;
-            if (chatKey.length < 16) {
-                alert('Chat key must be at least 16 characters');
-                return;
-            }
-            window.muteChat = window.muteChat || {};
-            window.muteChat.deriveKey = async () => await deriveKey(chatKey);
-            window.muteChat.initChat(); // Assume initChat handles chat initialization
+        document.getElementById('submit-key-btn').addEventListener('click', () => {
+            window.submitKey(); // Call submitKey from gold.js
         });
     </script>
-    <script src="gold.js"></script>
+    <script src="gold.js" nonce="<?php echo $nonce; ?>"></script>
+
 </body>
+
 </html>
