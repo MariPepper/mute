@@ -157,7 +157,7 @@ $serverTime = time();
     </div>
     <!-- Pass PHP data to JavaScript -->
     <script nonce="<?php echo $nonce; ?>">
-        const serverMessages = <?php echo json_encode($messageContents); ?>;
+        const serverMessages = <?php echo json_encode($messages); ?>;
         const serverTime = <?php echo time(); ?>;
         document.getElementById('submit-key-btn').addEventListener('click', () => {
             window.submitKey(); // Call submitKey from gold.js
