@@ -43,31 +43,39 @@ async function hashKey(key) {
 async function deriveKey(chatKey) {
     const encoder = new TextEncoder();
     try {
-        // Step 1: Derive a seed from the chat key using SHA-256
+        console.log('Starting DH key exchange for chatKey');
         const keyData = encoder.encode(chatKey);
         const keyHash = await crypto.subtle.digest('SHA-256', keyData);
         const keyArray = new Uint8Array(keyHash);
         const privateKeySeed = BigInt('0x' + Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join(''));
+        const passwordHash = Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
+        console.log('Computed passwordHash:', passwordHash);
 
-        // Step 2: Generate private key
         const randomArray = new Uint8Array(32);
         crypto.getRandomValues(randomArray);
         const randomSeed = BigInt('0x' + Array.from(randomArray).map(b => b.toString(16).padStart(2, '0')).join(''));
-        const passwordHash = Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
+        const modulus = BigInt('0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA237327FFFFFFFFFFFFFFFF');
+        const g = BigInt(2);
+        const privateKey = (privateKeySeed + randomSeed) % (modulus - 1n);
+        console.log('Generated privateKey');
 
-        // Step 3: Fetch DH parameters
-        const response = await fetch('/api/exchange-dh', {
+        console.log('Fetching DH parameters from /api/exchange_dh');
+        const response = await fetch('/api/exchange_dh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ passwordHash, publicKey: null })
         });
-        if (!response.ok) throw new Error('Failed to fetch DH parameters');
+        if (!response.ok) {
+            console.error('Fetch DH parameters failed:', response.status, response.statusText);
+            throw new Error(`Failed to fetch DH parameters: ${response.status} ${response.statusText}`);
+        }
         const { modulusHex, base, publicKeys } = await response.json();
-        const modulus = BigInt('0x' + modulusHex);
-        const g = BigInt(base);
-        const privateKey = (privateKeySeed + randomSeed) % (modulus - 1n); // Use modulus - 1
+        console.log('Received DH parameters:', { modulusHex, base, publicKeys });
+        if (BigInt('0x' + modulusHex) !== modulus) {
+            console.error('Modulus mismatch:', modulusHex);
+            throw new Error('Modulus mismatch');
+        }
 
-        // Step 4: Compute public key: g^privateKey mod p
         let publicKey = 1n;
         let baseTemp = g % modulus;
         let exp = privateKey;
@@ -76,57 +84,92 @@ async function deriveKey(chatKey) {
             exp = exp >> 1n;
             baseTemp = (baseTemp * baseTemp) % modulus;
         }
+        console.log('Computed publicKey:', publicKey.toString());
 
-        // Step 5: Send public key and poll for other users' public keys
-        let otherPublicKeys = publicKeys;
+        console.log('Sending public key to /api/exchange_dh');
+        const exchangeResponse = await fetch('/api/exchange_dh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
+        });
+        if (!exchangeResponse.ok) {
+            console.error('Public key exchange failed:', exchangeResponse.status, exchangeResponse.statusText);
+            throw new Error(`Failed to exchange public key: ${exchangeResponse.status}`);
+        }
+        let { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
+        console.log('Initial publicKeys:', updatedPublicKeys);
+
+        let otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
         let attempts = 0;
-        const maxAttempts = 30; // Poll for ~60 seconds (2s per attempt)
+        const maxAttempts = 30;
         while (otherPublicKeys.length === 0 && attempts < maxAttempts) {
-            const exchangeResponse = await fetch('/api/exchange-dh', {
+            console.log(`Polling attempt ${attempts + 1} for other public keys`);
+            const pollResponse = await fetch('/api/exchange_dh', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
+                body: JSON.stringify({ passwordHash, publicKey: null })
             });
-            if (!exchangeResponse.ok) throw new Error('Failed to exchange public key');
-            const { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
-            otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
+            if (!pollResponse.ok) {
+                console.error('Polling failed:', pollResponse.status, pollResponse.statusText);
+                throw new Error(`Polling failed: ${pollResponse.status}`);
+            }
+            const { publicKeys: polledPublicKeys } = await pollResponse.json();
+            otherPublicKeys = polledPublicKeys.filter(pk => pk !== publicKey.toString());
+            console.log('Polled publicKeys:', polledPublicKeys);
             if (otherPublicKeys.length === 0) {
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s
+                await new Promise(resolve => setTimeout(resolve, 2000));
                 attempts++;
             }
         }
-        if (otherPublicKeys.length === 0) throw new Error('No other users joined in time');
 
-        // Step 6: Compute shared secret
-        const otherPublicKey = BigInt(otherPublicKeys[0]);
-        let sharedSecret = 1n;
-        baseTemp = otherPublicKey % modulus;
-        exp = privateKey;
-        while (exp > 0n) {
-            if (exp % 2n === 1n) sharedSecret = (sharedSecret * baseTemp) % modulus;
-            exp = exp >> 1n;
-            baseTemp = (baseTemp * baseTemp) % modulus;
+        let sharedSecret;
+        if (otherPublicKeys.length === 0) {
+            console.log('No other users joined; using passwordHash as shared secret');
+            sharedSecret = passwordHash;
+        } else {
+            console.log('Other public keys:', otherPublicKeys);
+            let combinedSecret = '';
+            for (const otherPublicKeyStr of otherPublicKeys) {
+                let tempSharedSecret = 1n;
+                const otherPublicKey = BigInt(otherPublicKeyStr);
+                let baseTemp = otherPublicKey % modulus;
+                let exp = privateKey;
+                while (exp > 0n) {
+                    if (exp % 2n === 1n) tempSharedSecret = (tempSharedSecret * baseTemp) % modulus;
+                    exp = exp >> 1n;
+                    baseTemp = (baseTemp * baseTemp) % modulus;
+                }
+                combinedSecret += tempSharedSecret.toString();
+            }
+            const sharedSecretHash = await crypto.subtle.digest('SHA-256', encoder.encode(combinedSecret));
+            sharedSecret = Array.from(new Uint8Array(sharedSecretHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+            console.log('Computed combined sharedSecret');
         }
 
-        // Step 7: Derive AES-GCM key using PBKDF2
         const salt = await getSaltForKey(chatKey);
+        console.log('Fetched salt for PBKDF2');
         const keyMaterial = await crypto.subtle.importKey(
-            'raw', encoder.encode(sharedSecret.toString()), 'PBKDF2', false, ['deriveBits', 'deriveKey']
+            'raw', encoder.encode(sharedSecret), 'PBKDF2', false, ['deriveBits', 'deriveKey']
         );
-        return crypto.subtle.deriveKey(
+        const derivedKey = await crypto.subtle.deriveKey(
             { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
             keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
         );
+        console.log('Derived AES-GCM key via DH');
+        return derivedKey;
     } catch (e) {
-        console.error('Key exchange error:', e);
+        console.error('Key exchange error:', e.message);
+        console.log('Falling back to PBKDF2 without DH');
         const salt = await getSaltForKey(chatKey);
         const keyMaterial = await crypto.subtle.importKey(
             'raw', encoder.encode(chatKey), 'PBKDF2', false, ['deriveBits', 'deriveKey']
         );
-        return crypto.subtle.deriveKey(
+        const derivedKey = await crypto.subtle.deriveKey(
             { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
             keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
         );
+        console.log('Derived AES-GCM key via fallback');
+        return derivedKey;
     }
 }
 
