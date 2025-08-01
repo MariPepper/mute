@@ -133,7 +133,7 @@ $serverTime = time();
                 <button type="button" id="submit-key-btn">Submit Key</button>
             </div>
             <div class="chat-box" id="chat-box"></div>
-            <form method="POST" action="" class="chat-form" id="chat-form">
+            <form class="chat-form" id="chat-form" onsubmit="return false;">
                 <div class="form-group">
                     <input type="text" id="message-input" placeholder="Tap on the keyboard..." required>
                     <input type="hidden" name="encrypted_message" id="encrypted-message">
@@ -166,3 +166,4 @@ $serverTime = time();
 </body>
 
 </html>
+
