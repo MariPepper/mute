@@ -174,24 +174,40 @@ async function deriveKey(chatKey) {
 }
 
 async function submitKey() {
-    const keyInput = document.getElementById('chat-key-input').value;
-    if (!keyInput || keyInput.length < 16) {
-        alert('Key must be at least 16 characters!');
+    const keyInput = document.getElementById('chat-key-input');
+    const keyEntryDiv = document.getElementById('key-entry');
+    const chatForm = document.getElementById('chat-form');
+    const chatBox = document.getElementById('chat-box');
+
+    // Clear any existing error messages
+    const existingError = keyEntryDiv.querySelector('.error-message');
+    if (existingError) existingError.remove();
+
+    // Rely on HTML5 validation
+    if (!keyInput.checkValidity()) {
+        keyInput.reportValidity(); // Show browser-native validation message
         return;
     }
-    
+
     try {
-        SHARED_KEY = keyInput;
+        SHARED_KEY = keyInput.value.trim();
         derivedKey = await deriveKey(SHARED_KEY);
         sessionStorage.setItem('chatKey', SHARED_KEY);
-        
-        document.getElementById('key-entry').style.display = 'none';
-        document.getElementById('chat-form').style.display = 'block';
-        
+
+        // Hide key entry and show chat interface
+        keyEntryDiv.style.display = 'none';
+        chatForm.style.display = 'block';
+        chatBox.style.display = 'block';
+
         await initializeChat();
     } catch (error) {
         console.error("Error setting up key:", error);
-        alert("Error setting up encryption key. Please try again.");
+        // Show discreet error in UI
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.style.color = 'red';
+        errorDiv.textContent = 'Failed to process chat key. Please try again.';
+        keyEntryDiv.appendChild(errorDiv);
     }
 }
 
