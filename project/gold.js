@@ -17,16 +17,34 @@ if (!sessionStorage.getItem('cookieConsent')) {
     document.getElementById('consent-box').style.display = 'block';
 }
 
-async function getSaltForKey(key) {
-    const keyHash = await hashKey(key);
+async function getHighEntropyKey(chatKey) {
+    const keyHash = await hashKey(chatKey);
     const response = await fetch('get_salt.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `key_hash=${encodeURIComponent(keyHash)}`
     });
-    if (!response.ok) throw new Error('Failed to fetch salt');
+    if (!response.ok) throw new Error('Failed to fetch high-entropy key');
     const data = await response.json();
-    return base64ToUint8Array(data.salt);
+    if (data.error) throw new Error(data.error);
+    console.log('Fetched high-entropy key');
+    return data.key; // Base64-encoded 256-bit key
+}
+
+async function deriveKey(chatKey) {
+    try {
+        console.log('Fetching high-entropy key for chatKey');
+        const highEntropyKeyBase64 = await getHighEntropyKey(chatKey);
+        const highEntropyKey = Uint8Array.from(atob(highEntropyKeyBase64), c => c.charCodeAt(0));
+        const derivedKey = await crypto.subtle.importKey(
+            'raw', highEntropyKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+        console.log('Imported AES-GCM key from high-entropy key');
+        return derivedKey;
+    } catch (e) {
+        console.error('Key derivation error:', e.message);
+        throw new Error('Failed to derive key: ' + e.message);
+    }
 }
 
 function base64ToUint8Array(base64) {
@@ -38,139 +56,6 @@ async function hashKey(key) {
     const encoder = new TextEncoder();
     const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(key));
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function deriveKey(chatKey) {
-    const encoder = new TextEncoder();
-    try {
-        console.log('Starting DH key exchange for chatKey');
-        const keyData = encoder.encode(chatKey);
-        const keyHash = await crypto.subtle.digest('SHA-256', keyData);
-        const keyArray = new Uint8Array(keyHash);
-        const privateKeySeed = BigInt('0x' + Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join(''));
-        const passwordHash = Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
-        console.log('Computed passwordHash:', passwordHash);
-
-        const randomArray = new Uint8Array(32);
-        crypto.getRandomValues(randomArray);
-        const randomSeed = BigInt('0x' + Array.from(randomArray).map(b => b.toString(16).padStart(2, '0')).join(''));
-        const modulus = BigInt('0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA237327FFFFFFFFFFFFFFFF');
-        const g = BigInt(2);
-        const privateKey = (privateKeySeed + randomSeed) % (modulus - 1n);
-        console.log('Generated privateKey');
-
-        console.log('Fetching DH parameters from /api/exchange_dh');
-        const response = await fetch('/api/exchange_dh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ passwordHash, publicKey: null })
-        });
-        if (!response.ok) {
-            console.error('Fetch DH parameters failed:', response.status, response.statusText);
-            throw new Error(`Failed to fetch DH parameters: ${response.status} ${response.statusText}`);
-        }
-        const { modulusHex, base, publicKeys } = await response.json();
-        console.log('Received DH parameters:', { modulusHex, base, publicKeys });
-        if (BigInt('0x' + modulusHex) !== modulus) {
-            console.error('Modulus mismatch:', modulusHex);
-            throw new Error('Modulus mismatch');
-        }
-
-        let publicKey = 1n;
-        let baseTemp = g % modulus;
-        let exp = privateKey;
-        while (exp > 0n) {
-            if (exp % 2n === 1n) publicKey = (publicKey * baseTemp) % modulus;
-            exp = exp >> 1n;
-            baseTemp = (baseTemp * baseTemp) % modulus;
-        }
-        console.log('Computed publicKey:', publicKey.toString());
-
-        console.log('Sending public key to /api/exchange_dh');
-        const exchangeResponse = await fetch('/api/exchange_dh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ passwordHash, publicKey: publicKey.toString() })
-        });
-        if (!exchangeResponse.ok) {
-            console.error('Public key exchange failed:', exchangeResponse.status, exchangeResponse.statusText);
-            throw new Error(`Failed to exchange public key: ${exchangeResponse.status}`);
-        }
-        let { publicKeys: updatedPublicKeys } = await exchangeResponse.json();
-        console.log('Initial publicKeys:', updatedPublicKeys);
-
-        let otherPublicKeys = updatedPublicKeys.filter(pk => pk !== publicKey.toString());
-        let attempts = 0;
-        const maxAttempts = 30;
-        while (otherPublicKeys.length === 0 && attempts < maxAttempts) {
-            console.log(`Polling attempt ${attempts + 1} for other public keys`);
-            const pollResponse = await fetch('/api/exchange_dh', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passwordHash, publicKey: null })
-            });
-            if (!pollResponse.ok) {
-                console.error('Polling failed:', pollResponse.status, pollResponse.statusText);
-                throw new Error(`Polling failed: ${pollResponse.status}`);
-            }
-            const { publicKeys: polledPublicKeys } = await pollResponse.json();
-            otherPublicKeys = polledPublicKeys.filter(pk => pk !== publicKey.toString());
-            console.log('Polled publicKeys:', polledPublicKeys);
-            if (otherPublicKeys.length === 0) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                attempts++;
-            }
-        }
-
-        let sharedSecret;
-        if (otherPublicKeys.length === 0) {
-            console.log('No other users joined; using passwordHash as shared secret');
-            sharedSecret = passwordHash;
-        } else {
-            console.log('Other public keys:', otherPublicKeys);
-            let combinedSecret = '';
-            for (const otherPublicKeyStr of otherPublicKeys) {
-                let tempSharedSecret = 1n;
-                const otherPublicKey = BigInt(otherPublicKeyStr);
-                let baseTemp = otherPublicKey % modulus;
-                let exp = privateKey;
-                while (exp > 0n) {
-                    if (exp % 2n === 1n) tempSharedSecret = (tempSharedSecret * baseTemp) % modulus;
-                    exp = exp >> 1n;
-                    baseTemp = (baseTemp * baseTemp) % modulus;
-                }
-                combinedSecret += tempSharedSecret.toString();
-            }
-            const sharedSecretHash = await crypto.subtle.digest('SHA-256', encoder.encode(combinedSecret));
-            sharedSecret = Array.from(new Uint8Array(sharedSecretHash)).map(b => b.toString(16).padStart(2, '0')).join('');
-            console.log('Computed combined sharedSecret');
-        }
-
-        const salt = await getSaltForKey(chatKey);
-        console.log('Fetched salt for PBKDF2');
-        const keyMaterial = await crypto.subtle.importKey(
-            'raw', encoder.encode(sharedSecret), 'PBKDF2', false, ['deriveBits', 'deriveKey']
-        );
-        const derivedKey = await crypto.subtle.deriveKey(
-            { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-            keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-        );
-        console.log('Derived AES-GCM key via DH');
-        return derivedKey;
-    } catch (e) {
-        console.error('Key exchange error:', e.message);
-        console.log('Falling back to PBKDF2 without DH');
-        const salt = await getSaltForKey(chatKey);
-        const keyMaterial = await crypto.subtle.importKey(
-            'raw', encoder.encode(chatKey), 'PBKDF2', false, ['deriveBits', 'deriveKey']
-        );
-        const derivedKey = await crypto.subtle.deriveKey(
-            { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
-            keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-        );
-        console.log('Derived AES-GCM key via fallback');
-        return derivedKey;
-    }
 }
 
 async function submitKey() {
@@ -198,7 +83,6 @@ async function submitKey() {
         keyEntryDiv.style.display = 'none';
         chatForm.style.display = 'block';
         chatBox.style.display = 'block';
-
         await initializeChat();
     } catch (error) {
         console.error("Error setting up key:", error);
@@ -243,29 +127,26 @@ function sanitizeInput(input) {
 async function encryptMessage(text) {
     try {
         if (!derivedKey) throw new Error("Key not derived");
-        
         const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
         const timestamp = Date.now();
         if (Math.abs(timestamp - Date.now()) > 300000) {
             throw new Error("Client clock is too far off; please sync time");
         }
-        const payload = JSON.stringify({ 
-            name: displayName, 
-            message: text, 
-            timestamp: timestamp 
+        const payload = JSON.stringify({
+            name: displayName,
+            message: text,
+            timestamp: timestamp
         });
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        
         const encrypted = await crypto.subtle.encrypt(
-            { 
-                name: 'AES-GCM', 
+            {
+                name: 'AES-GCM',
                 iv: iv,
                 additionalData: new TextEncoder().encode(timestamp.toString())
             },
             derivedKey,
             new TextEncoder().encode(payload)
         );
-        
         return `${btoa(String.fromCharCode(...iv))}:${btoa(String.fromCharCode(...new Uint8Array(encrypted)))}:${timestamp}`;
     } catch (error) {
         console.error("Encryption error:", error);
@@ -276,24 +157,21 @@ async function encryptMessage(text) {
 async function decryptMessage(encryptedStr) {
     try {
         if (!derivedKey) throw new Error("Key not derived");
-        
         const parts = encryptedStr.split(':');
         if (parts.length !== 3) throw new Error("Invalid encrypted message format");
-        
         const [ivBase64, encryptedBase64, timestamp] = parts;
         const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
         const encrypted = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-        
+
         const decrypted = await crypto.subtle.decrypt(
-            { 
-                name: 'AES-GCM', 
+            {
+                name: 'AES-GCM',
                 iv: iv,
                 additionalData: new TextEncoder().encode(timestamp)
             },
             derivedKey,
             encrypted
         );
-        
         const payload = JSON.parse(new TextDecoder().decode(decrypted));
         return { name: payload.name || 'Anonymous', message: payload.message };
     } catch (error) {
@@ -313,9 +191,9 @@ function displayMessages(messages, referenceTime) {
     chatBox.innerHTML = '';
     const currentTime = referenceTime || Date.now();
     const validMessages = messages.filter(msgObj => {
-        if (typeof msgObj === 'string') return true;
+        if (typeof msgObj === 'string') return true; // Keep legacy messages for migration
         const messageAge = currentTime - msgObj.timestamp;
-        return messageAge <= 300000;
+        return messageAge <= 300000; // 5 minutes
     });
 
     if (validMessages.length !== messages.length) {
@@ -334,6 +212,7 @@ function displayMessages(messages, referenceTime) {
             name = msgObj.name || 'Anonymous';
             content = msgObj.content;
         }
+
         messageDiv.innerHTML = `
             <span class="message-name">${escapeHtml(name)}</span>
             <span class="message-text">${escapeHtml(content)}</span>
@@ -355,34 +234,30 @@ function saveLocalMessages(messages) {
 
 async function fetchMessages() {
     if (!derivedKey) return;
-    
     const chatBox = document.getElementById('chat-box');
     if (!chatBox) {
         console.error("Chat box element not found in fetchMessages");
         return;
     }
-
     try {
-        const response = await fetch('fetch_messages_gold.php');
+        const response = await fetch('fetch_messages_gold.php'); 
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         const serverTimeMs = data.server_time * 1000;
-        
+
         const decryptedMessages = await Promise.all(
             data.messages.map(async (msg, index) => {
                 const encContent = typeof msg === 'object' && msg.content ? msg.content : msg;
                 const decrypted = await decryptMessage(encContent);
                 if (decrypted !== null) {
-                    const timestamp = typeof msg === 'object' && msg.timestamp ?
-                        msg.timestamp * 1000 : serverTimeMs - (index * 1000);
+                    const timestamp = typeof msg === 'object' && msg.timestamp ? msg.timestamp * 1000 : serverTimeMs - (index * 1000);
                     return { name: decrypted.name, content: decrypted.message, timestamp };
                 }
                 return null;
             })
         );
-        
         const validMessages = decryptedMessages.filter(msg => msg !== null);
-        
+
         if (JSON.stringify(localMessages.map(m => m.content)) !== JSON.stringify(validMessages.map(m => m.content)) || validMessages.length !== localMessages.length) {
             localMessages = validMessages;
             saveLocalMessages(localMessages);
@@ -399,7 +274,6 @@ async function initializeChat() {
         console.error("Chat box element not found in initializeChat");
         return;
     }
-
     try {
         if (typeof serverMessages !== 'undefined' && serverMessages.length > 0) {
             const decryptedServerMessages = await Promise.all(
@@ -419,12 +293,10 @@ async function initializeChat() {
             saveLocalMessages(localMessages);
             displayMessages(localMessages, serverTime * 1000);
         }
-        
         setInterval(fetchMessages, 2000);
         setInterval(() => {
             displayMessages(localMessages);
         }, 60000);
-        
     } catch (error) {
         console.error("Error initializing chat:", error);
     }
@@ -447,10 +319,10 @@ async function handleFormSubmit(e) {
         alert("Encryption key not ready. Please wait or reset the key.");
         return;
     }
-    
     const msgInput = document.getElementById('message-input');
     let message = sanitizeInput(msgInput.value);
     const displayName = sessionStorage.getItem('displayName') || 'Anonymous';
+
     if (message && message.length > 0) {
         if (displayName.length + message.length > 1000) {
             alert('Combined name and message too long (max 1000 characters)');
@@ -458,29 +330,27 @@ async function handleFormSubmit(e) {
         }
         try {
             const encrypted = await encryptMessage(message);
-            const timestamp = parseInt(encrypted.split(':')[2]);
-            
+            const timestamp = parseInt(encrypted.split(':')[2]); // Extract timestamp from encrypted string
             const formData = new FormData();
             formData.append('encrypted_message', encrypted);
-            
+
             const response = await fetch(window.location.href, {
                 method: 'POST',
                 body: formData
             });
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const data = await response.json();
             if (!data.success) {
                 throw new Error(`Server rejected message: ${data.error || 'Unknown error'}`);
             }
-            
+
             localMessages.push({ name: displayName, content: message, timestamp });
             displayMessages(localMessages);
             saveLocalMessages(localMessages);
-            
             msgInput.value = '';
             lastActivity = Date.now();
         } catch (error) {
@@ -492,29 +362,31 @@ async function handleFormSubmit(e) {
 
 setInterval(() => {
     console.log("Periodic timeout check at", new Date().toLocaleTimeString());
-    if (Date.now() - lastActivity > 30 * 60 * 1000) {
+    if (Date.now() - lastActivity > 30 * 60 * 1000) { // 30 minutes
         resetChatKey();
         alert('Session expired due to inactivity');
     }
-}, 60000);
+}, 60000); // Check every minute
 
 document.addEventListener('DOMContentLoaded', async () => {
     await initializeFromStorage();
-    
+
     document.getElementById('submit-key-btn').addEventListener('click', submitKey);
     document.getElementById('clear-btn').addEventListener('click', clearChat);
     document.getElementById('reset-key-btn').addEventListener('click', resetChatKey);
     document.getElementById('go-public-btn').addEventListener('click', () => {
         location.href = 'talk_silver.php';
     });
+
     document.getElementById('accept-consent').addEventListener('click', acceptConsent);
     document.getElementById('reject-consent').addEventListener('click', rejectConsent);
-    
+
     const chatForm = document.getElementById('chat-form');
     if (chatForm) {
         chatForm.addEventListener('submit', handleFormSubmit);
     }
 
+    // Update lastActivity on user interaction
     document.addEventListener('click', () => lastActivity = Date.now());
     document.addEventListener('keypress', () => lastActivity = Date.now());
     const msgInput = document.getElementById('message-input');
