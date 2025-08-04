@@ -2,6 +2,12 @@
 header('Content-Type: application/json');
 require_once 'encrypt_json.php';
 
+// Simple logging function
+function log_action($message) {
+    $logFile = '../private/key_log.txt';
+    file_put_contents($logFile, date('Y-m-d H:i:s') . " - $message\n", FILE_APPEND | LOCK_EX);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['key_hash'])) {
     $keyHash = $_POST['key_hash'];
     $saltFile = '../private/salt_key_mapping.json';
@@ -14,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['key_hash'])) {
         foreach ($data as $hash => $entry) {
             if (isset($entry['created']) && ($currentTime - $entry['created']) > 86400) {
                 unset($data[$hash]);
-                error_log("Removed expired key for hash: $hash");
+                log_action("Expired key removed for keyHash: $hash"); // Log expiration event
             }
         }
 
@@ -37,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['key_hash'])) {
             ];
             file_put_contents($saltFile, encryptJson($data), LOCK_EX);
             chmod($saltFile, 0600);
-            error_log("Generated high-entropy key for keyHash: $keyHash");
+            log_action("Generated high-entropy key for keyHash: $keyHash");
         }
 
         // Return the high-entropy key
